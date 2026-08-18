@@ -1,16 +1,33 @@
-# dictation_application
+# JunEdu Flutter
 
-A new Flutter project.
+Flutter desktop client for the Jun Edu SQLite study database.
 
-## Getting Started
+## Local database
 
-This project is a starting point for a Flutter application.
+During development, the app opens `exams.db` from the current working directory.
+For a packaged deployment, provide its location with:
 
-A few resources to get you started if this is your first Flutter project:
+```powershell
+flutter run --dart-define=JUNEDU_DB_PATH=C:\data\exams.db
+```
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
+## Supabase production configuration
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+The compiled app never reads `.env`. Supply configuration at build time instead:
+
+```powershell
+flutter build windows `
+  --dart-define=SUPABASE_URL=https://your-project.supabase.co `
+  --dart-define=SUPABASE_KEY=your-publishable-key `
+  --dart-define=SUPABASE_SCHEMA=public `
+  --dart-define=JUNEDU_DB_PATH=C:\data\exams.db
+```
+
+Use a Supabase publishable/anon key only; never place a service-role key in a client application. Sign in through Supabase Auth before using the Sync button. Sync uploads dirty local rows and downloads the user-scoped Jun Edu tables.
+
+## Validation
+
+```powershell
+flutter analyze
+flutter test
+```
