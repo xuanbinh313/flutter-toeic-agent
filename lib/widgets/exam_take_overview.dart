@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 
 import '../models.dart';
+import '../services/attempt_detail_service.dart';
 import '../services/local_database.dart';
 
 class ExamTakeOverview extends StatefulWidget {
@@ -314,9 +315,7 @@ class _ExamTakeOverviewState extends State<ExamTakeOverview> {
   }
 
   Future<void> _viewAttempt(AttemptSummary attempt) async {
-    final rows = await LocalDatabase.instance.loadAttemptAnswerDetails(
-      attempt.id,
-    );
+    final rows = await AttemptDetailService.instance.loadAnswers(attempt.id);
     if (!mounted) return;
     await showDialog<void>(
       context: context,

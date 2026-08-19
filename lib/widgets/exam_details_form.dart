@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../models.dart';
 import '../services/external_audio_import_service.dart';
 import '../services/local_database.dart';
+import '../services/local_mediafile_service.dart';
 
 class ExamDetailsForm extends StatefulWidget {
   const ExamDetailsForm({super.key, required this.exam, required this.onSaved});
@@ -149,7 +150,10 @@ class _ExamDetailsFormState extends State<ExamDetailsForm> {
         text: _transcript.text,
         progress: _setProgress,
       );
-      _audio.text = imported.audioPath;
+      final audioFilename = await LocalMediafileService.instance.registerNew(
+        imported.audioPath,
+      );
+      _audio.text = audioFilename;
       _applyDraftToExam();
       await LocalDatabase.instance.updateExam(widget.exam);
       await LocalDatabase.instance.saveSrtChunks(
