@@ -14,7 +14,7 @@ class Exam {
   String description;
   int duration;
   final int questions;
-  final String id;
+  String id;
   String? audioName;
   String? audioPath;
   bool published;
@@ -58,6 +58,8 @@ class ExamContext {
     required this.audioStart,
     required this.audioEnd,
     required this.questions,
+    this.imagePath,
+    this.imageFilename,
   });
 
   final String id;
@@ -69,6 +71,8 @@ class ExamContext {
   final double audioStart;
   final double audioEnd;
   final List<ExamQuestion> questions;
+  final String? imagePath;
+  final String? imageFilename;
 }
 
 class ExamQuestion {
@@ -89,4 +93,26 @@ class ExamQuestion {
   final List<String> options;
   final String correctAnswer;
   final String note;
+}
+
+class AttemptSummary {
+  AttemptSummary({
+    required this.id,
+    required this.createdAt,
+    required this.durationSeconds,
+    required this.totalCorrect,
+    required this.totalQuestions,
+    required this.selectedParts,
+    required this.questionTags,
+  });
+
+  final String id;
+  final String createdAt;
+  final int durationSeconds;
+  final int totalCorrect;
+  final int totalQuestions;
+  final List<int> selectedParts;
+  final List<String> questionTags;
+  double get accuracy =>
+      totalQuestions == 0 ? 0 : totalCorrect * 100 / totalQuestions;
 }

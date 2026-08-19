@@ -7,6 +7,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import '../config.dart';
 import '../models.dart';
+import 'uuid.dart';
 
 class LocalDatabase {
   LocalDatabase._();
@@ -152,8 +153,27 @@ class LocalDatabase {
     });
   }
 
-  Future<void> updateExam(Exam exam) => database.then(
-    (db) => db.update(
+  Future<void> updateExam(Exam exam) async {
+    final db = await database;
+    final now = DateTime.now().toUtc().toIso8601String();
+    if (exam.id.isEmpty) {
+      exam.id = newUuid();
+      await db.insert('exams', {
+        'id': exam.id,
+        'title': exam.title,
+        'description': exam.description,
+        'duration_minutes': exam.duration,
+        'is_published': exam.published ? 1 : 0,
+        'audio_name': exam.audioName,
+        'full_audio_url': exam.audioPath,
+        'created_at': now,
+        'updated_at': now,
+        'dirty': 1,
+        'srt_chunks': '',
+      });
+      return;
+    }
+    await db.update(
       'exams',
       {
         'title': exam.title,
@@ -161,13 +181,13 @@ class LocalDatabase {
         'duration_minutes': exam.duration,
         'is_published': exam.published ? 1 : 0,
         'audio_name': exam.audioName,
-        'updated_at': DateTime.now().toUtc().toIso8601String(),
+        'updated_at': now,
         'dirty': 1,
       },
       where: 'id = ?',
       whereArgs: [exam.id],
-    ),
-  );
+    );
+  }
 
   Future<List<ExamContext>> loadExamContexts(String examId) async {
     final db = await database;
@@ -203,9 +223,128 @@ class LocalDatabase {
         audioStart: (meta['audio_start'] as num?)?.toDouble() ?? 0,
         audioEnd: (meta['audio_end'] as num?)?.toDouble() ?? 0,
         questions: byContext[row['id'] as String] ?? [],
+        imagePath: content['image_path'] as String?,
+        imageFilename: content['image_filename'] as String?,
       );
     }).toList();
   }
+
+  Future<List<String>> loadExamQuestionTags(String examId) async {
+    final rows = await (await database).rawQuery(
+      '''
+      SELECT DISTINCT t.tag_name FROM user_question_tags t
+      JOIN exam_contexts c ON c.id = t.context_id
+      WHERE c.exam_id = ? ORDER BY t.tag_name COLLATE NOCASE
+    ''',
+      [examId],
+    );
+    return rows.map((row) => row['tag_name'] as String).toList();
+  }
+
+  Future<List<AttemptSummary>> loadAttemptSummaries(String examId) async {
+    final rows = await (await database).query(
+      'exam_attempts',
+      where: 'exam_id = ?',
+      whereArgs: [examId],
+      orderBy: 'created_at DESC',
+    );
+    return rows.map((row) {
+      final meta = _jsonMap(row['additional_meta']);
+      return AttemptSummary(
+        id: row['id'] as String,
+        createdAt: row['created_at'] as String? ?? '',
+        durationSeconds: (row['duration_seconds'] as num?)?.toInt() ?? 0,
+        totalCorrect: (row['total_correct'] as num?)?.toInt() ?? 0,
+        totalQuestions: (row['total_questions'] as num?)?.toInt() ?? 0,
+        selectedParts: _jsonList(
+          meta['selected_parts'],
+        ).map((item) => int.tryParse('$item')).whereType<int>().toList(),
+        questionTags: _jsonList(
+          meta['question_tags'],
+        ).map((item) => '$item').toList(),
+      );
+    }).toList();
+  }
+
+  Future<Map<String, Set<String>>> loadContextTags(String examId) async {
+    final rows = await (await database).rawQuery(
+      '''
+      SELECT t.context_id, t.tag_name FROM user_question_tags t
+      JOIN exam_contexts c ON c.id = t.context_id WHERE c.exam_id = ?
+    ''',
+      [examId],
+    );
+    final tags = <String, Set<String>>{};
+    for (final row in rows) {
+      tags
+          .putIfAbsent(row['context_id'] as String, () => {})
+          .add(row['tag_name'] as String);
+    }
+    return tags;
+  }
+
+  Future<void> saveAttempt({
+    required String examId,
+    required int totalCorrect,
+    required int totalQuestions,
+    required int durationSeconds,
+    required List<({String questionId, String? choice, bool correct})> answers,
+    required List<int> selectedParts,
+    required List<String> selectedTags,
+    required String mode,
+  }) async {
+    final attemptId = newUuid();
+    final now = DateTime.now().toUtc().toIso8601String();
+    final db = await database;
+    await db.transaction((transaction) async {
+      await transaction.insert('exam_attempts', {
+        'id': attemptId,
+        'exam_id': examId,
+        'total_correct': totalCorrect,
+        'total_questions': totalQuestions,
+        'final_score': totalQuestions == 0
+            ? null
+            : totalCorrect * 100 / totalQuestions,
+        'duration_seconds': durationSeconds,
+        'created_at': now,
+        'dirty': 1,
+        'additional_meta': jsonEncode({
+          'mode': mode,
+          'selected_parts': selectedParts,
+          'selected_tags': selectedTags,
+          'question_tags': selectedTags,
+        }),
+      });
+      for (final answer in answers) {
+        await transaction.insert('user_answers', {
+          'id': newUuid(),
+          'attempt_id': attemptId,
+          'question_id': answer.questionId,
+          'user_choice': answer.choice,
+          'is_correct': answer.correct ? 1 : 0,
+          'dirty': 1,
+        });
+      }
+    });
+  }
+
+  Future<List<Map<String, Object?>>> loadAttemptAnswerDetails(
+    String attemptId,
+  ) => database.then(
+    (db) => db.rawQuery(
+      '''
+      SELECT a.user_choice, a.is_correct, q.question_number, q.content,
+             q.options, q.correct_answer, q.question_type, c.part,
+             c.content AS context_content, c.additional_meta AS context_meta,
+             q.additional_meta AS question_meta
+      FROM user_answers a
+      JOIN exam_questions q ON q.id = a.question_id
+      JOIN exam_contexts c ON c.id = q.context_id
+      WHERE a.attempt_id = ? ORDER BY q.question_number
+    ''',
+      [attemptId],
+    ),
+  );
 
   ExamQuestion _questionFromRow(Map<String, Object?> row) {
     final meta = _jsonMap(row['additional_meta']);
@@ -235,16 +374,122 @@ class LocalDatabase {
   }
 
   List<dynamic> _jsonList(Object? value) {
-    if (value is List<dynamic>) return value;
-    if (value is String) {
+    var decoded = value;
+    // Older Jun Edu exports may JSON-encode the options column twice.
+    for (var attempt = 0; attempt < 3; attempt++) {
+      if (decoded is List<dynamic>) return decoded;
+      if (decoded is! String) return [];
       try {
-        final decoded = jsonDecode(value);
-        if (decoded is List<dynamic>) return decoded;
+        decoded = jsonDecode(decoded);
       } on FormatException {
-        // Invalid legacy JSON is treated as an empty value.
+        return [];
       }
     }
     return [];
+  }
+
+  Future<void> deleteContext(String contextId) => database.then(
+    (db) => db.transaction((tx) async {
+      await tx.delete(
+        'exam_questions',
+        where: 'context_id = ?',
+        whereArgs: [contextId],
+      );
+      await tx.delete(
+        'user_question_tags',
+        where: 'context_id = ?',
+        whereArgs: [contextId],
+      );
+      await tx.delete('exam_contexts', where: 'id = ?', whereArgs: [contextId]);
+    }),
+  );
+
+  Future<void> saveContext({
+    required String examId,
+    String? id,
+    required int part,
+    required String type,
+    required String text,
+    required String note,
+    required double audioStart,
+    required double audioEnd,
+    List<ExamQuestion> questions = const [],
+  }) async {
+    final contextId = id ?? newUuid();
+    final db = await database;
+    await db.transaction((tx) async {
+      final context = {
+        'id': contextId,
+        'exam_id': examId,
+        'part': part,
+        'context_type': type,
+        'content': jsonEncode({'text': text}),
+        'index': 0,
+        'additional_meta': jsonEncode({
+          'note': note,
+          'audio_start': audioStart,
+          'audio_end': audioEnd,
+        }),
+        'dirty': 1,
+      };
+      if (id == null) {
+        await tx.insert('exam_contexts', context);
+      } else {
+        await tx.update(
+          'exam_contexts',
+          context,
+          where: 'id = ?',
+          whereArgs: [id],
+        );
+      }
+      if (questions.isNotEmpty) {
+        await tx.delete(
+          'exam_questions',
+          where: 'context_id = ?',
+          whereArgs: [contextId],
+        );
+        for (final question in questions) {
+          await tx.insert('exam_questions', {
+            'id': question.id.isEmpty ? newUuid() : question.id,
+            'context_id': contextId,
+            'question_number': question.number,
+            'question_type': question.type,
+            'content': question.content,
+            'options': jsonEncode(question.options),
+            'correct_answer': question.correctAnswer,
+            'additional_meta': jsonEncode({'note': question.note}),
+            'dirty': 1,
+          });
+        }
+      }
+    });
+  }
+
+  Future<void> setContextTag(String contextId, String tag, bool enabled) async {
+    final db = await database;
+    if (enabled) {
+      final exists = await db.query(
+        'user_question_tags',
+        where: 'context_id = ? AND tag_name = ?',
+        whereArgs: [contextId, tag],
+        limit: 1,
+      );
+      if (exists.isEmpty) {
+        await db.insert('user_question_tags', {
+          'id': newUuid(),
+          'context_id': contextId,
+          'tag_name': tag,
+          'created_at': DateTime.now().toUtc().toIso8601String(),
+          'dirty': 1,
+        });
+      }
+    } else {
+      await db.delete(
+        'user_question_tags',
+        where: 'context_id = ? AND tag_name = ?',
+        whereArgs: [contextId, tag],
+      );
+    }
   }
 
   Future<void> updateVocabularyStatus(Vocab word) => (database.then(

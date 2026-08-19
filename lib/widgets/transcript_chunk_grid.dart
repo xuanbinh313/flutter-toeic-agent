@@ -7,6 +7,7 @@ class TranscriptChunkGrid extends StatefulWidget {
   const TranscriptChunkGrid({
     super.key,
     required this.chunks,
+    required this.isLoaded,
     required this.onTimeChanged,
     required this.onTextChanged,
     required this.onAction,
@@ -14,7 +15,8 @@ class TranscriptChunkGrid extends StatefulWidget {
   });
 
   final List<SrtChunk> chunks;
-  final void Function(String id, String field, double value) onTimeChanged;
+  final bool isLoaded;
+  final double Function(String id, String field, double value) onTimeChanged;
   final void Function(String id, String text) onTextChanged;
   final Future<void> Function(String id, String action) onAction;
   final ValueChanged<String> onSelected;
@@ -24,17 +26,12 @@ class TranscriptChunkGrid extends StatefulWidget {
 }
 
 class _TranscriptChunkGridState extends State<TranscriptChunkGrid> {
+  static const _pageSize = 30;
   PlutoGridStateManager? _stateManager;
-  String _appliedStructure = '';
-
-  @override
-  void didUpdateWidget(covariant TranscriptChunkGrid oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    WidgetsBinding.instance.addPostFrameCallback((_) => _syncRows());
-  }
 
   @override
   Widget build(BuildContext context) => PlutoGrid(
+    key: ValueKey(widget.isLoaded),
     columns: [
       PlutoColumn(
         title: '#',
@@ -49,7 +46,8 @@ class _TranscriptChunkGridState extends State<TranscriptChunkGrid> {
         title: 'Transcript',
         field: 'text',
         type: PlutoColumnType.text(),
-        minWidth: 260,
+        width: 480,
+        minWidth: 320,
       ),
       PlutoColumn(
         title: 'Note',
@@ -68,11 +66,15 @@ class _TranscriptChunkGridState extends State<TranscriptChunkGrid> {
         renderer: _actions,
       ),
     ],
-    rows: _rows,
-    onLoaded: (event) {
-      _stateManager = event.stateManager;
-      _appliedStructure = _structureVersion;
-    },
+    // Keep this mutable, as PlutoInfinityScrollRows appends each fetched page.
+    rows: [],
+    createFooter: (stateManager) => PlutoInfinityScrollRows(
+      stateManager: stateManager,
+      fetch: _fetchRows,
+      fetchWithFiltering: false,
+      fetchWithSorting: false,
+    ),
+    onLoaded: (event) => _stateManager = event.stateManager,
     onChanged: (event) {
       if (event.column.field == 'text') {
         widget.onTextChanged(
@@ -87,67 +89,119 @@ class _TranscriptChunkGridState extends State<TranscriptChunkGrid> {
     },
     configuration: const PlutoGridConfiguration(
       style: PlutoGridStyleConfig(rowHeight: 42, columnHeight: 32),
+      scrollbar: PlutoGridScrollbarConfig(
+        draggableScrollbar: true,
+        isAlwaysShown: true,
+        scrollbarThickness: 8,
+      ),
+      columnSize: PlutoGridColumnSizeConfig(
+        autoSizeMode: PlutoAutoSizeMode.none,
+      ),
     ),
+    mode: PlutoGridMode.normal,
   );
 
-  String get _structureVersion =>
-      widget.chunks.map((chunk) => chunk.id).join('|');
+  Future<PlutoInfinityScrollRowsResponse> _fetchRows(
+    PlutoInfinityScrollRowsRequest request,
+  ) async {
+    final lastId = request.lastRow?.cells['id']?.value as String?;
+    final start = lastId == null
+        ? 0
+        : widget.chunks.indexWhere((chunk) => chunk.id == lastId) + 1;
+    final safeStart = start < 0 ? 0 : start;
+    final end = (safeStart + _pageSize).clamp(0, widget.chunks.length).toInt();
+    return PlutoInfinityScrollRowsResponse(
+      rows: _rows(widget.chunks.sublist(safeStart, end), safeStart),
+      isLast: end >= widget.chunks.length,
+    );
+  }
 
-  List<PlutoRow> get _rows => [
-    for (var i = 0; i < widget.chunks.length; i++)
+  List<PlutoRow> _rows(List<SrtChunk> chunks, int offset) => [
+    for (var i = 0; i < chunks.length; i++)
       PlutoRow(
         cells: {
-          'id': PlutoCell(value: widget.chunks[i].id),
-          'number': PlutoCell(value: i + 1),
-          'start': PlutoCell(value: widget.chunks[i].start),
-          'end': PlutoCell(value: widget.chunks[i].end),
-          'text': PlutoCell(value: widget.chunks[i].text),
-          'note': PlutoCell(value: widget.chunks[i].hint ?? ''),
+          'id': PlutoCell(value: chunks[i].id),
+          'number': PlutoCell(value: offset + i + 1),
+          'start': PlutoCell(value: chunks[i].start),
+          'end': PlutoCell(value: chunks[i].end),
+          'text': PlutoCell(value: chunks[i].text),
+          'note': PlutoCell(value: chunks[i].hint ?? ''),
           'actions': PlutoCell(value: ''),
         },
       ),
   ];
 
-  void _syncRows() {
+  Future<void> _runAction(String id, String action) async {
+    await widget.onAction(id, action);
+    if (!mounted || !_changesRows(action)) return;
+    _syncLoadedRows();
+  }
+
+  bool _changesRows(String action) => switch (action) {
+    'merge' || 'duplicate' || 'split' || 'delete' => true,
+    _ => false,
+  };
+
+  void _syncLoadedRows() {
     final stateManager = _stateManager;
     if (stateManager == null) return;
-    if (_appliedStructure != _structureVersion) {
-      stateManager.removeAllRows(notify: false);
-      stateManager.appendRows(_rows);
-      _appliedStructure = _structureVersion;
+    final existing = stateManager.refRows.originalList.toList();
+    if (existing.isEmpty) return;
+    final existingIds = existing
+        .map((row) => row.cells['id']!.value as String)
+        .toSet();
+    final lastLoadedIndex = widget.chunks.lastIndexWhere(
+      (chunk) => existingIds.contains(chunk.id),
+    );
+    if (lastLoadedIndex < 0) {
+      stateManager.removeRows(existing);
       return;
     }
-    final rowsById = {
-      for (final row in stateManager.refRows.originalList)
-        row.cells['id']!.value as String: row,
-    };
-    for (var i = 0; i < widget.chunks.length; i++) {
-      final chunk = widget.chunks[i];
-      final row = rowsById[chunk.id];
-      if (row == null) continue;
-      _updateCell(stateManager, row, 'number', i + 1);
-      _updateCell(stateManager, row, 'start', chunk.start);
-      _updateCell(stateManager, row, 'end', chunk.end);
-      _updateCell(stateManager, row, 'text', chunk.text);
-      _updateCell(stateManager, row, 'note', chunk.hint ?? '');
+    final target = widget.chunks.sublist(0, lastLoadedIndex + 1);
+    final targetIds = target.map((chunk) => chunk.id).toSet();
+    stateManager.removeRows(
+      existing
+          .where((row) => !targetIds.contains(row.cells['id']!.value))
+          .toList(),
+      notify: false,
+    );
+
+    for (var index = 0; index < target.length; index++) {
+      final chunk = target[index];
+      final rows = stateManager.refRows.originalList;
+      final current = index < rows.length ? rows[index] : null;
+      if (current?.cells['id']!.value != chunk.id) {
+        stateManager.insertRows(index, _rows([chunk], index), notify: false);
+      } else {
+        _updateRow(stateManager, current!, chunk, index);
+      }
     }
     stateManager.notifyListeners();
   }
 
-  void _updateCell(
+  void _updateRow(
     PlutoGridStateManager stateManager,
     PlutoRow row,
-    String field,
-    dynamic value,
+    SrtChunk chunk,
+    int index,
   ) {
-    final cell = row.cells[field]!;
-    if (cell.value != value) {
-      stateManager.changeCellValue(
-        cell,
-        value,
-        callOnChangedEvent: false,
-        notify: false,
-      );
+    final values = {
+      'number': index + 1,
+      'start': chunk.start,
+      'end': chunk.end,
+      'text': chunk.text,
+      'note': chunk.hint ?? '',
+    };
+    for (final entry in values.entries) {
+      final cell = row.cells[entry.key]!;
+      if (cell.value != entry.value) {
+        stateManager.changeCellValue(
+          cell,
+          entry.value,
+          callOnChangedEvent: false,
+          notify: false,
+        );
+      }
     }
   }
 
@@ -167,7 +221,7 @@ class _TranscriptChunkGridState extends State<TranscriptChunkGrid> {
             padding: EdgeInsets.zero,
             constraints: const BoxConstraints.tightFor(width: 30, height: 30),
             tooltip: 'Decrease $title',
-            onPressed: () => widget.onTimeChanged(id, field, value - .1),
+            onPressed: () => _changeTime(context, id, field, value - .1),
             icon: const Icon(Icons.remove_circle_outline),
           ),
           Expanded(
@@ -184,7 +238,7 @@ class _TranscriptChunkGridState extends State<TranscriptChunkGrid> {
               ),
               onFieldSubmitted: (text) {
                 final changed = double.tryParse(text);
-                if (changed != null) widget.onTimeChanged(id, field, changed);
+                if (changed != null) _changeTime(context, id, field, changed);
               },
             ),
           ),
@@ -193,13 +247,27 @@ class _TranscriptChunkGridState extends State<TranscriptChunkGrid> {
             padding: EdgeInsets.zero,
             constraints: const BoxConstraints.tightFor(width: 30, height: 30),
             tooltip: 'Increase $title',
-            onPressed: () => widget.onTimeChanged(id, field, value + .1),
+            onPressed: () => _changeTime(context, id, field, value + .1),
             icon: const Icon(Icons.add_circle_outline),
           ),
         ],
       );
     },
   );
+
+  void _changeTime(
+    PlutoColumnRendererContext context,
+    String id,
+    String field,
+    double value,
+  ) {
+    final updated = widget.onTimeChanged(id, field, value);
+    context.stateManager.changeCellValue(
+      context.cell,
+      updated,
+      callOnChangedEvent: false,
+    );
+  }
 
   Widget _bodyText(PlutoColumnRendererContext context) => Align(
     alignment: Alignment.centerLeft,
@@ -231,7 +299,7 @@ class _TranscriptChunkGridState extends State<TranscriptChunkGrid> {
         padding: EdgeInsets.zero,
         constraints: const BoxConstraints.tightFor(width: 42, height: 30),
         tooltip: tooltip,
-        onPressed: () => widget.onAction(id, action),
+        onPressed: () => _runAction(id, action),
         icon: Icon(icon),
       );
 }

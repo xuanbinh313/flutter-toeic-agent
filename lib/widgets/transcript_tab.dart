@@ -3,7 +3,7 @@ import 'dart:io';
 
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
+import 'package:google_generative_ai/google_generative_ai.dart';
 
 import '../config.dart';
 import '../models.dart';
@@ -26,15 +26,21 @@ class TranscriptTab extends StatefulWidget {
 
 class _TranscriptTabState extends State<TranscriptTab> {
   final _player = AudioPlayer();
+  final _playback = ValueNotifier((
+    position: Duration.zero,
+    duration: Duration.zero,
+    isPlaying: false,
+  ));
   List<SrtChunk> _chunks = [];
   String? _selectedId;
-  Duration _position = Duration.zero;
-  Duration _duration = Duration.zero;
+  ({String chunkId, Duration start, Duration end})? _activePlaybackRange;
+  bool _isEndingPlayback = false;
   bool _hasChanges = false;
   bool _isLoaded = false;
-  bool _isPlaying = false;
   bool _isRepeating = false;
   bool _isTranslating = false;
+  bool _transcriptRefreshQueued = false;
+  int _gridRevision = 0;
 
   @override
   void initState() {
@@ -42,10 +48,10 @@ class _TranscriptTabState extends State<TranscriptTab> {
     _loadChunks();
     _player.onPositionChanged.listen(_onPositionChanged);
     _player.onDurationChanged.listen((value) {
-      if (mounted) setState(() => _duration = value);
+      if (mounted) _updatePlayback(duration: value);
     });
     _player.onPlayerStateChanged.listen((state) {
-      if (mounted) setState(() => _isPlaying = state == PlayerState.playing);
+      if (mounted) _updatePlayback(isPlaying: state == PlayerState.playing);
     });
   }
 
@@ -79,38 +85,49 @@ class _TranscriptTabState extends State<TranscriptTab> {
     return File(path).existsSync() ? path : null;
   }
 
-  void _onPositionChanged(Duration position) {
-    final chunk = _selectedChunk;
-    if (chunk != null && position.inMilliseconds >= _milliseconds(chunk.end)) {
-      final end = Duration(milliseconds: _milliseconds(chunk.end));
-      if (_isRepeating) {
-        final start = Duration(milliseconds: _milliseconds(chunk.start));
-        _player.seek(start);
-        position = start;
-      } else {
-        _player.pause();
-        _player.seek(end);
-        position = end;
+  Future<void> _onPositionChanged(Duration position) async {
+    final range = _activePlaybackRange;
+    if (range != null && position >= range.end) {
+      if (_isEndingPlayback) return;
+      _isEndingPlayback = true;
+      try {
+        if (_isRepeating) {
+          await _player.seek(range.start);
+          position = range.start;
+        } else {
+          // Do not seek from a position callback. On Windows that can overlap
+          // the pause command while the native player is raising this event.
+          position = range.end;
+          _updatePlayback(position: position, isPlaying: false);
+          await _player.pause();
+        }
+      } catch (_) {
+        // The page may be closing while a native audio operation completes.
+      } finally {
+        _isEndingPlayback = false;
       }
     }
-    if (mounted) setState(() => _position = position);
+    if (mounted) _updatePlayback(position: position);
   }
 
   Future<void> _playSelection() async {
     final chunk = _selectedChunk;
     final path = _audioPath;
     if (chunk == null || path == null) return;
-    if (_isPlaying) {
+    if (_playback.value.isPlaying) {
       await _player.pause();
     } else {
-      await _player.play(
-        DeviceFileSource(path),
-        position: Duration(milliseconds: _milliseconds(chunk.start)),
+      final range = (
+        chunkId: chunk.id,
+        start: Duration(milliseconds: _milliseconds(chunk.start)),
+        end: Duration(milliseconds: _milliseconds(chunk.end)),
       );
+      _activePlaybackRange = range;
+      await _player.play(DeviceFileSource(path), position: range.start);
     }
   }
 
-  void _changeTime(String id, String field, double value) {
+  double _changeTime(String id, String field, double value) {
     final chunk = _chunks.firstWhere((item) => item.id == id);
     setState(() {
       if (field == 'start') {
@@ -120,14 +137,20 @@ class _TranscriptTabState extends State<TranscriptTab> {
       }
       _hasChanges = true;
     });
+    return field == 'start' ? chunk.start : chunk.end;
   }
 
   void _changeTranscript(String id, String text) {
     final chunk = _chunks.firstWhere((item) => item.id == id);
     if (chunk.text == text) return;
-    setState(() {
-      chunk.text = text;
-      _hasChanges = true;
+    chunk.text = text;
+    _hasChanges = true;
+    if (_transcriptRefreshQueued) return;
+    _transcriptRefreshQueued = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _transcriptRefreshQueued = false;
+      setState(() {});
     });
   }
 
@@ -143,7 +166,7 @@ class _TranscriptTabState extends State<TranscriptTab> {
       case 'duplicate':
         _duplicate();
       case 'split':
-        _showSplitDialog();
+        await _showSplitDialog();
       case 'delete':
         _delete();
     }
@@ -182,6 +205,10 @@ class _TranscriptTabState extends State<TranscriptTab> {
   void _delete() {
     final chunk = _selectedChunk;
     if (chunk == null) return;
+    if (_activePlaybackRange?.chunkId == chunk.id) {
+      _activePlaybackRange = null;
+      _player.stop();
+    }
     setState(() {
       _chunks.remove(chunk);
       _selectedId = null;
@@ -189,11 +216,11 @@ class _TranscriptTabState extends State<TranscriptTab> {
     });
   }
 
-  void _showSplitDialog() {
+  Future<void> _showSplitDialog() async {
     final chunk = _selectedChunk;
     if (chunk == null) return;
     final controller = TextEditingController(text: chunk.text);
-    showDialog<void>(
+    await showDialog<void>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Split at cursor'),
@@ -272,49 +299,70 @@ class _TranscriptTabState extends State<TranscriptTab> {
       );
       return;
     }
-    if (_chunks.isEmpty) return;
+    final entries = _chunks
+        .where((chunk) => chunk.text.trim().isNotEmpty)
+        .map((chunk) => {'id': chunk.id, 'text': chunk.text})
+        .toList();
+    if (entries.isEmpty) {
+      _showMessage('No transcript text is available to translate.');
+      return;
+    }
     setState(() => _isTranslating = true);
     try {
-      final entries = _chunks
-          .map((chunk) => {'id': chunk.id, 'text': chunk.text})
-          .toList();
-      final response = await http.post(
-        Uri.parse(
-          'https://generativelanguage.googleapis.com/v1beta/models/${AppConfig.geminiModel}:generateContent?key=${AppConfig.geminiApiKey}',
+      final agent = GenerativeModel(
+        model: AppConfig.geminiModel,
+        apiKey: AppConfig.geminiApiKey,
+        generationConfig: GenerationConfig(
+          temperature: 0,
+          responseMimeType: 'application/json',
         ),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'contents': [
-            {
-              'parts': [
-                {
-                  'text':
-                      'Translate each English transcript to Vietnamese. Return only a JSON object mapping each id to its translation. Input: ${jsonEncode(entries)}',
-                },
-              ],
-            },
-          ],
-        }),
       );
-      if (response.statusCode < 200 || response.statusCode >= 300) {
-        throw HttpException(
-          'Translation request failed (${response.statusCode}).',
+      final response = await agent.generateContent([
+        Content.text(
+          'Translate every English transcript to natural Vietnamese. '
+          'Return a JSON object only, mapping each supplied id to its '
+          'translation. Input: ${jsonEncode(entries)}',
+        ),
+      ]);
+      if (response.candidates.isEmpty) {
+        throw StateError(
+          'The translation agent did not return a candidate: '
+          '${response.promptFeedback ?? 'request was rejected'}.',
         );
       }
-      final data = jsonDecode(response.body) as Map<String, dynamic>;
-      final raw =
-          data['candidates'][0]['content']['parts'][0]['text'] as String;
+      final raw = response.text;
+      if (raw == null || raw.isEmpty) {
+        throw StateError('The translation agent returned no text.');
+      }
       final cleaned = raw
           .replaceAll(RegExp(r'^```json\s*|\s*```$', multiLine: true), '')
           .trim();
       final translations = jsonDecode(cleaned) as Map<String, dynamic>;
-      setState(() {
-        for (final chunk in _chunks) {
-          final translation = translations[chunk.id];
-          if (translation is String) chunk.hint = translation;
+      var translatedCount = 0;
+      for (final chunk in _chunks) {
+        final translation = translations[chunk.id];
+        if (translation is String && translation.trim().isNotEmpty) {
+          chunk.hint = translation.trim();
+          translatedCount++;
         }
+      }
+      if (translatedCount == 0) {
+        _showMessage('No transcript translations were returned.');
+        return;
+      }
+      setState(() {
         _hasChanges = true;
+        _gridRevision++;
       });
+      await LocalDatabase.instance.saveSrtChunks(widget.examId, _chunks);
+      if (mounted) setState(() => _hasChanges = false);
+      _showMessage(
+        'Translations saved: $translatedCount Note segments updated.',
+      );
+    } on GenerativeAIException catch (error) {
+      _showMessage('Translation agent failed: ${error.message}');
+    } on FormatException catch (error) {
+      _showMessage('Translation agent returned invalid JSON: ${error.message}');
     } catch (error) {
       _showMessage('Could not translate transcript: $error');
     } finally {
@@ -331,11 +379,26 @@ class _TranscriptTabState extends State<TranscriptTab> {
   }
 
   int _milliseconds(double seconds) => (seconds * 1000).round();
+
+  void _updatePlayback({
+    Duration? position,
+    Duration? duration,
+    bool? isPlaying,
+  }) {
+    final current = _playback.value;
+    _playback.value = (
+      position: position ?? current.position,
+      duration: duration ?? current.duration,
+      isPlaying: isPlaying ?? current.isPlaying,
+    );
+  }
+
   String _format(Duration value) =>
       (value.inMilliseconds / 1000).toStringAsFixed(2);
 
   @override
   void dispose() {
+    _playback.dispose();
     _player.dispose();
     super.dispose();
   }
@@ -351,7 +414,9 @@ class _TranscriptTabState extends State<TranscriptTab> {
         const SizedBox(height: 8),
         Expanded(
           child: TranscriptChunkGrid(
+            key: ValueKey(_gridRevision),
             chunks: _chunks,
+            isLoaded: _isLoaded,
             onSelected: (id) => setState(() => _selectedId = id),
             onTimeChanged: _changeTime,
             onTextChanged: _changeTranscript,
@@ -408,34 +473,37 @@ class _TranscriptTabState extends State<TranscriptTab> {
     ),
   );
 
-  Widget _progressBar() {
-    final maximum = _duration.inMilliseconds == 0
-        ? 1.0
-        : _duration.inMilliseconds.toDouble();
-    final current = _position.inMilliseconds
-        .clamp(0, maximum.toInt())
-        .toDouble();
-    return Row(
-      children: [
-        IconButton.filled(
-          onPressed: _selectedChunk == null ? null : _playSelection,
-          icon: Icon(_isPlaying ? Icons.pause : Icons.play_arrow),
-        ),
-        const SizedBox(width: 8),
-        Text(_format(_position)),
-        Expanded(
-          child: Slider(
-            value: current,
-            max: maximum,
-            onChanged: (value) {
-              final position = Duration(milliseconds: value.round());
-              _player.seek(position);
-              setState(() => _position = position);
-            },
+  Widget _progressBar() => ValueListenableBuilder(
+    valueListenable: _playback,
+    builder: (context, playback, _) {
+      final maximum = playback.duration.inMilliseconds == 0
+          ? 1.0
+          : playback.duration.inMilliseconds.toDouble();
+      final current = playback.position.inMilliseconds
+          .clamp(0, maximum.toInt())
+          .toDouble();
+      return Row(
+        children: [
+          IconButton.filled(
+            onPressed: _selectedChunk == null ? null : _playSelection,
+            icon: Icon(playback.isPlaying ? Icons.pause : Icons.play_arrow),
           ),
-        ),
-        Text(_format(_duration)),
-      ],
-    );
-  }
+          const SizedBox(width: 8),
+          Text(_format(playback.position)),
+          Expanded(
+            child: Slider(
+              value: current,
+              max: maximum,
+              onChanged: (value) {
+                final position = Duration(milliseconds: value.round());
+                _player.seek(position);
+                _updatePlayback(position: position);
+              },
+            ),
+          ),
+          Text(_format(playback.duration)),
+        ],
+      );
+    },
+  );
 }

@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 
 import '../models.dart';
+import 'exam_session_page.dart';
 import '../widgets/dictation_practice.dart';
 import '../widgets/exam_details_form.dart';
 import '../widgets/exam_groups_tab.dart';
+import '../widgets/exam_take_overview.dart';
 import '../widgets/transcript_tab.dart';
 
 class ExamWorkspace extends StatelessWidget {
@@ -177,10 +179,25 @@ class ExamWorkspace extends StatelessWidget {
       ),
     ],
   );
-  Widget _practice(BuildContext context) => Center(
-    child: Wrap(
-      spacing: 12,
-      children: [_start(context, false), _start(context, true)],
+  Widget _practice(BuildContext context) => ExamTakeOverview(
+    exam: exam,
+    onStartPractice: (parts, tags) =>
+        _quiz(context, false, parts: parts, tags: tags),
+    onStartReal: () => _quiz(context, true),
+    onStartDictation: () => Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => Scaffold(
+          appBar: AppBar(title: const Text('Dictation')),
+          body: Padding(
+            padding: const EdgeInsets.all(24),
+            child: DictationPractice(
+              examId: exam.id,
+              audioName: exam.audioName ?? exam.audioPath,
+            ),
+          ),
+        ),
+      ),
     ),
   );
   Widget _results() => ListView(
@@ -267,10 +284,20 @@ class ExamWorkspace extends StatelessWidget {
       Text(value, style: const TextStyle(fontWeight: FontWeight.w600)),
     ],
   );
-  void _quiz(BuildContext context, bool timed) => Navigator.push(
+  void _quiz(
+    BuildContext context,
+    bool timed, {
+    List<int> parts = const [],
+    List<String> tags = const [],
+  }) => Navigator.push(
     context,
     MaterialPageRoute(
-      builder: (_) => QuizPage(exam: exam, timed: timed),
+      builder: (_) => ExamSessionPage(
+        exam: exam,
+        realTest: timed,
+        parts: parts,
+        tags: tags,
+      ),
     ),
   );
 }

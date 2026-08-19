@@ -95,6 +95,11 @@ class _ExamGroupsTabState extends State<ExamGroupsTab> {
             ),
             const Spacer(),
             IconButton(
+              onPressed: () => _editContext(),
+              tooltip: 'Add context',
+              icon: const Icon(Icons.add),
+            ),
+            IconButton(
               onPressed: _load,
               tooltip: 'Refresh',
               icon: const Icon(Icons.refresh),
@@ -125,55 +130,228 @@ class _ExamGroupsTabState extends State<ExamGroupsTab> {
 
   Widget _contextCard(ExamContext context) => Card(
     elevation: 0,
-    child: ExpansionTile(
-      title: Text(
-        'Context ${context.index + 1} · ${context.type.replaceAll('_', ' ')}',
+    child: Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Context ${context.index + 1} · ${context.type.replaceAll('_', ' ')}',
+            style: const TextStyle(fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 3),
+          Wrap(
+            spacing: 4,
+            children: [
+              TextButton.icon(
+                onPressed: () => _editContext(context),
+                icon: const Icon(Icons.edit_outlined),
+                label: const Text('Edit'),
+              ),
+              TextButton.icon(
+                onPressed: () => _deleteContext(context),
+                icon: const Icon(Icons.delete_outline),
+                label: const Text('Delete'),
+              ),
+              TextButton.icon(
+                onPressed: () => _addTag(context),
+                icon: const Icon(Icons.sell_outlined),
+                label: const Text('Tag'),
+              ),
+            ],
+          ),
+          Text(
+            context.questions.isEmpty
+                ? 'No questions'
+                : 'Questions ${context.questions.map((item) => item.number).join(', ')}',
+            style: const TextStyle(color: Color(0xff52616b)),
+          ),
+          const SizedBox(height: 10),
+          if (context.text.isNotEmpty)
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: Text(context.text),
+              ),
+            ),
+          if (context.note.isNotEmpty)
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: Text(
+                  context.note,
+                  style: const TextStyle(color: Color(0xff52616b)),
+                ),
+              ),
+            ),
+          if (context.audioEnd > context.audioStart)
+            Align(
+              alignment: Alignment.centerLeft,
+              child: OutlinedButton.icon(
+                onPressed: _audioPath == null
+                    ? null
+                    : () => _playContext(context),
+                icon: Icon(
+                  _playingContext == context.id
+                      ? Icons.pause
+                      : Icons.play_arrow,
+                ),
+                label: Text(
+                  '${context.audioStart.toStringAsFixed(2)} – ${context.audioEnd.toStringAsFixed(2)}',
+                ),
+              ),
+            ),
+          for (final question in context.questions) _question(question),
+        ],
       ),
-      subtitle: Text(
-        context.questions.isEmpty
-            ? 'No questions'
-            : 'Questions ${context.questions.map((item) => item.number).join(', ')}',
-      ),
-      childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-      children: [
-        if (context.text.isNotEmpty)
-          Align(
-            alignment: Alignment.centerLeft,
-            child: Padding(
-              padding: const EdgeInsets.only(bottom: 10),
-              child: Text(context.text),
-            ),
-          ),
-        if (context.note.isNotEmpty)
-          Align(
-            alignment: Alignment.centerLeft,
-            child: Padding(
-              padding: const EdgeInsets.only(bottom: 10),
-              child: Text(
-                context.note,
-                style: const TextStyle(color: Color(0xff52616b)),
-              ),
-            ),
-          ),
-        if (context.audioEnd > context.audioStart)
-          Align(
-            alignment: Alignment.centerLeft,
-            child: OutlinedButton.icon(
-              onPressed: _audioPath == null
-                  ? null
-                  : () => _playContext(context),
-              icon: Icon(
-                _playingContext == context.id ? Icons.pause : Icons.play_arrow,
-              ),
-              label: Text(
-                '${context.audioStart.toStringAsFixed(2)} – ${context.audioEnd.toStringAsFixed(2)}',
-              ),
-            ),
-          ),
-        for (final question in context.questions) _question(question),
-      ],
     ),
   );
+
+  Future<void> _deleteContext(ExamContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: this.context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Delete context?'),
+        content: const Text('This deletes the context and its questions.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    await LocalDatabase.instance.deleteContext(context.id);
+    await _load();
+  }
+
+  Future<void> _editContext([ExamContext? context]) async {
+    final part = TextEditingController(text: '${context?.part ?? 1}');
+    final type = TextEditingController(text: context?.type ?? 'STANDALONE');
+    final text = TextEditingController(text: context?.text ?? '');
+    final note = TextEditingController(text: context?.note ?? '');
+    final start = TextEditingController(text: '${context?.audioStart ?? 0}');
+    final end = TextEditingController(text: '${context?.audioEnd ?? 0}');
+    final save = await showDialog<bool>(
+      context: this.context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(context == null ? 'Add Context' : 'Edit Context'),
+        content: SizedBox(
+          width: 600,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: part,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(labelText: 'Part'),
+                ),
+                TextField(
+                  controller: type,
+                  decoration: const InputDecoration(labelText: 'Context type'),
+                ),
+                TextField(
+                  controller: text,
+                  minLines: 3,
+                  maxLines: 6,
+                  decoration: const InputDecoration(
+                    labelText: 'Passage / context text',
+                  ),
+                ),
+                TextField(
+                  controller: note,
+                  minLines: 2,
+                  maxLines: 4,
+                  decoration: const InputDecoration(labelText: 'Context note'),
+                ),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: start,
+                        decoration: const InputDecoration(
+                          labelText: 'Audio start',
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: TextField(
+                        controller: end,
+                        decoration: const InputDecoration(
+                          labelText: 'Audio end',
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    if (save == true) {
+      await LocalDatabase.instance.saveContext(
+        examId: widget.exam.id,
+        id: context?.id,
+        part: int.tryParse(part.text) ?? 1,
+        type: type.text.trim().isEmpty ? 'STANDALONE' : type.text.trim(),
+        text: text.text.trim(),
+        note: note.text.trim(),
+        audioStart: double.tryParse(start.text) ?? 0,
+        audioEnd: double.tryParse(end.text) ?? 0,
+      );
+    }
+    for (final controller in [part, type, text, note, start, end]) {
+      controller.dispose();
+    }
+    if (save == true) await _load();
+  }
+
+  Future<void> _addTag(ExamContext context) async {
+    final controller = TextEditingController();
+    final tag = await showDialog<String>(
+      context: this.context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Add context tag'),
+        content: TextField(controller: controller, autofocus: true),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () =>
+                Navigator.pop(dialogContext, controller.text.trim()),
+            child: const Text('Add'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (tag == null || tag.isEmpty) return;
+    await LocalDatabase.instance.setContextTag(context.id, tag, true);
+    if (mounted) setState(() {});
+  }
 
   Widget _question(ExamQuestion question) => Padding(
     padding: const EdgeInsets.only(top: 10),

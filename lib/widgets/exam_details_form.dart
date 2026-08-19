@@ -31,6 +31,20 @@ class _ExamDetailsFormState extends State<ExamDetailsForm> {
   String _progress = '';
   bool _saving = false;
   bool _working = false;
+  late String _initialTitle = _title.text;
+  late String _initialDescription = _description.text;
+  late String _initialAudio = _audio.text;
+  late String _initialDuration = _duration.text;
+  late bool _initialPublished = _published;
+
+  @override
+  void initState() {
+    super.initState();
+    _title.addListener(_onChanged);
+    _description.addListener(_onChanged);
+    _audio.addListener(_onChanged);
+    _duration.addListener(_onChanged);
+  }
 
   @override
   void dispose() {
@@ -40,6 +54,33 @@ class _ExamDetailsFormState extends State<ExamDetailsForm> {
     _duration.dispose();
     _transcript.dispose();
     super.dispose();
+  }
+
+  bool get _isNew => widget.exam.id.isEmpty;
+
+  bool get _hasChanges =>
+      _title.text != _initialTitle ||
+      _description.text != _initialDescription ||
+      _audio.text != _initialAudio ||
+      _duration.text != _initialDuration ||
+      _published != _initialPublished;
+
+  bool get _canSave =>
+      !_saving &&
+      !_working &&
+      _title.text.trim().isNotEmpty &&
+      (_isNew || _hasChanges);
+
+  void _onChanged() {
+    if (mounted) setState(() {});
+  }
+
+  void _markSaved() {
+    _initialTitle = _title.text;
+    _initialDescription = _description.text;
+    _initialAudio = _audio.text;
+    _initialDuration = _duration.text;
+    _initialPublished = _published;
   }
 
   Future<void> _selectAudio() async {
@@ -108,13 +149,14 @@ class _ExamDetailsFormState extends State<ExamDetailsForm> {
         text: _transcript.text,
         progress: _setProgress,
       );
-      widget.exam.audioName = imported.audioPath;
       _audio.text = imported.audioPath;
+      _applyDraftToExam();
       await LocalDatabase.instance.updateExam(widget.exam);
       await LocalDatabase.instance.saveSrtChunks(
         widget.exam.id,
         imported.chunks,
       );
+      _markSaved();
       if (mounted) {
         setState(
           () => _progress =
@@ -130,29 +172,41 @@ class _ExamDetailsFormState extends State<ExamDetailsForm> {
   }
 
   Future<void> _save() async {
+    if (!_canSave) return;
     final title = _title.text.trim();
     if (title.isEmpty) {
       _showError('Title is required.');
       return;
     }
     setState(() => _saving = true);
-    widget.exam.title = title;
+    try {
+      _applyDraftToExam();
+      await LocalDatabase.instance.updateExam(widget.exam);
+      _markSaved();
+      widget.onSaved();
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Exam details saved.')));
+      }
+    } catch (error) {
+      _showError(error);
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  void _setProgress(String message) {
+    if (mounted) setState(() => _progress = message);
+  }
+
+  void _applyDraftToExam() {
+    widget.exam.title = _title.text.trim();
     widget.exam.description = _description.text.trim();
     widget.exam.duration = int.tryParse(_duration.text) ?? 0;
     widget.exam.published = _published;
     final audio = _audio.text.trim();
     widget.exam.audioName = audio.isEmpty ? null : audio;
-    await LocalDatabase.instance.updateExam(widget.exam);
-    if (!mounted) return;
-    setState(() => _saving = false);
-    widget.onSaved();
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('Exam details saved.')));
-  }
-
-  void _setProgress(String message) {
-    if (mounted) setState(() => _progress = message);
   }
 
   void _showError(Object error) {
@@ -265,7 +319,7 @@ class _ExamDetailsFormState extends State<ExamDetailsForm> {
       Align(
         alignment: Alignment.centerLeft,
         child: FilledButton.icon(
-          onPressed: _saving || _working ? null : _save,
+          onPressed: _canSave ? _save : null,
           icon: const Icon(Icons.save),
           label: Text(_saving ? 'Saving...' : 'Save'),
         ),

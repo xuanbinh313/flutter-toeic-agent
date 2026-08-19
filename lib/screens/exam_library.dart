@@ -16,14 +16,16 @@ class _ExamLibraryState extends State<ExamLibrary> {
   String _query = '';
 
   Future<void> _addExam() async {
-    final created = await showDialog<Exam>(
-      context: context,
-      builder: (_) => const _ExamDialog(),
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ExamWorkspace(
+          exam: Exam(title: '', description: '', duration: 45, questions: 0),
+          changed: widget.changed,
+        ),
+      ),
     );
-    if (created != null) {
-      setState(() => widget.exams.add(created));
-      widget.changed();
-    }
+    widget.changed();
   }
 
   @override
@@ -138,78 +140,5 @@ class _ExamCard extends StatelessWidget {
         ),
       ),
     ),
-  );
-}
-
-class _ExamDialog extends StatefulWidget {
-  const _ExamDialog();
-  @override
-  State<_ExamDialog> createState() => _ExamDialogState();
-}
-
-class _ExamDialogState extends State<_ExamDialog> {
-  final _title = TextEditingController();
-  final _description = TextEditingController();
-  final _duration = TextEditingController(text: '45');
-  @override
-  void dispose() {
-    _title.dispose();
-    _description.dispose();
-    _duration.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) => AlertDialog(
-    title: const Text('Create exam'),
-    content: SizedBox(
-      width: 410,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          TextField(
-            controller: _title,
-            autofocus: true,
-            decoration: const InputDecoration(labelText: 'Exam title'),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _description,
-            maxLines: 2,
-            decoration: const InputDecoration(labelText: 'Description'),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _duration,
-            keyboardType: TextInputType.number,
-            decoration: const InputDecoration(labelText: 'Duration (minutes)'),
-          ),
-        ],
-      ),
-    ),
-    actions: [
-      TextButton(
-        onPressed: () => Navigator.pop(context),
-        child: const Text('Cancel'),
-      ),
-      FilledButton(
-        onPressed: () {
-          if (_title.text.trim().isNotEmpty) {
-            Navigator.pop(
-              context,
-              Exam(
-                title: _title.text.trim(),
-                description: _description.text.trim().isEmpty
-                    ? 'New exam ready for questions and contexts.'
-                    : _description.text.trim(),
-                duration: int.tryParse(_duration.text) ?? 45,
-                questions: 0,
-              ),
-            );
-          }
-        },
-        child: const Text('Create'),
-      ),
-    ],
   );
 }
