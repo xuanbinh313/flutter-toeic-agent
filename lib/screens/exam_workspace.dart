@@ -1,4 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:window_manager/window_manager.dart';
 
 import '../models.dart';
 import 'exam_session_page.dart';
@@ -8,10 +12,44 @@ import '../widgets/exam_groups_tab.dart';
 import '../widgets/exam_take_overview.dart';
 import '../widgets/transcript_tab.dart';
 
-class ExamWorkspace extends StatelessWidget {
+class ExamWorkspace extends StatefulWidget {
   const ExamWorkspace({super.key, required this.exam, required this.changed});
   final Exam exam;
   final VoidCallback changed;
+
+  @override
+  State<ExamWorkspace> createState() => _ExamWorkspaceState();
+}
+
+class _ExamWorkspaceState extends State<ExamWorkspace> {
+  final _reminderMinutes = TextEditingController(text: '10');
+  Timer? _reminder;
+
+  Exam get exam => widget.exam;
+  VoidCallback get changed => widget.changed;
+
+  @override
+  void dispose() {
+    _reminder?.cancel();
+    _reminderMinutes.dispose();
+    super.dispose();
+  }
+
+  Future<void> _scheduleReminder() async {
+    final minutes = int.tryParse(_reminderMinutes.text.trim());
+    if (minutes == null || minutes < 1) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Enter a whole number of minutes.')),
+      );
+      return;
+    }
+    _reminder?.cancel();
+    _reminder = Timer(Duration(minutes: minutes), () async {
+      await windowManager.show();
+      await windowManager.focus();
+    });
+    await windowManager.hide();
+  }
 
   @override
   Widget build(BuildContext context) => DefaultTabController(
@@ -55,6 +93,26 @@ class ExamWorkspace extends StatelessWidget {
                     ],
                   ),
                 ),
+                SizedBox(
+                  width: 96,
+                  child: TextField(
+                    controller: _reminderMinutes,
+                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                      labelText: 'Minutes',
+                      isDense: true,
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                OutlinedButton.icon(
+                  onPressed: () => _scheduleReminder(),
+                  icon: const Icon(Icons.notifications_outlined),
+                  label: const Text('Notify me'),
+                ),
+                const SizedBox(width: 8),
                 OutlinedButton.icon(
                   onPressed: () {
                     exam.published = !exam.published;

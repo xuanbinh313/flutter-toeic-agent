@@ -1,4 +1,10 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:tray_manager/tray_manager.dart';
+import 'package:window_manager/window_manager.dart';
 
 import 'models.dart';
 import 'screens/exam_library.dart';
@@ -10,8 +16,86 @@ import 'widgets/settings_page.dart';
 
 enum _MenuAction { authenticate, logout, syncToRemote, syncToLocal }
 
-class JunEduApp extends StatelessWidget {
+class JunEduApp extends StatefulWidget {
   const JunEduApp({super.key});
+
+  @override
+  State<JunEduApp> createState() => _JunEduAppState();
+}
+
+class _JunEduAppState extends State<JunEduApp>
+    with WindowListener, TrayListener {
+  @override
+  void initState() {
+    super.initState();
+    windowManager.addListener(this);
+    trayManager.addListener(this);
+    _initializeTray();
+  }
+
+  @override
+  void dispose() {
+    windowManager.removeListener(this);
+    trayManager.removeListener(this);
+    super.dispose();
+  }
+
+  Future<void> _initializeTray() async {
+    if (!Platform.isWindows) return;
+    final iconData = await rootBundle.load(
+      'windows/runner/resources/app_icon.ico',
+    );
+    final directory = await getTemporaryDirectory();
+    final icon = File(
+      '${directory.path}${Platform.pathSeparator}junedu_tray.ico',
+    );
+    await icon.writeAsBytes(
+      iconData.buffer.asUint8List(
+        iconData.offsetInBytes,
+        iconData.lengthInBytes,
+      ),
+      flush: true,
+    );
+    await trayManager.setIcon(icon.path);
+    await trayManager.setToolTip('JunEdu');
+    await trayManager.setContextMenu(
+      Menu(
+        items: [
+          MenuItem(key: 'show_window', label: 'Open JunEdu'),
+          MenuItem.separator(),
+          MenuItem(key: 'exit_app', label: 'Exit JunEdu'),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showWindow() async {
+    await windowManager.show();
+    await windowManager.focus();
+  }
+
+  @override
+  void onWindowClose() {
+    // Keep the process alive so navigating back to the window resumes this
+    // exact app session instead of starting over.
+    windowManager.hide();
+  }
+
+  @override
+  void onTrayIconMouseDown() => _showWindow();
+
+  @override
+  void onTrayMenuItemClick(MenuItem menuItem) {
+    switch (menuItem.key) {
+      case 'show_window':
+        _showWindow();
+        return;
+      case 'exit_app':
+        windowManager.destroy();
+        return;
+    }
+  }
+
   @override
   Widget build(BuildContext context) => MaterialApp(
     title: 'JunEdu',

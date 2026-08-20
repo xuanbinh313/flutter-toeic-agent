@@ -1,6 +1,9 @@
+import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:audioplayers/audioplayers.dart';
+import 'package:desktop_multi_window/desktop_multi_window.dart';
 import 'package:flutter/material.dart';
 
 import '../models.dart';
@@ -21,11 +24,13 @@ class _ExamGroupsTabState extends State<ExamGroupsTab> {
   int? _part;
   bool _loading = true;
   String? _playingContext;
+  StreamSubscription<void>? _windowsSubscription;
 
   @override
   void initState() {
     super.initState();
     _load();
+    _windowsSubscription = onWindowsChanged.listen((_) => _load());
   }
 
   Future<void> _load() async {
@@ -39,6 +44,24 @@ class _ExamGroupsTabState extends State<ExamGroupsTab> {
         _loading = false;
       });
     }
+  }
+
+  Future<void> _openAgentImport() async {
+    final arguments = jsonEncode({
+      'window': 'import-questions-agent',
+      'examId': widget.exam.id,
+    });
+    final existing = await WindowController.getAll();
+    for (final controller in existing) {
+      if (controller.arguments == arguments) {
+        await controller.show();
+        return;
+      }
+    }
+    final controller = await WindowController.create(
+      WindowConfiguration(arguments: arguments, hiddenAtLaunch: false),
+    );
+    await controller.show();
   }
 
   String? get _audioPath {
@@ -70,6 +93,7 @@ class _ExamGroupsTabState extends State<ExamGroupsTab> {
 
   @override
   void dispose() {
+    _windowsSubscription?.cancel();
     _player.dispose();
     super.dispose();
   }
@@ -77,11 +101,6 @@ class _ExamGroupsTabState extends State<ExamGroupsTab> {
   @override
   Widget build(BuildContext context) {
     if (_loading) return const Center(child: CircularProgressIndicator());
-    if (_contexts.isEmpty) {
-      return const Center(
-        child: Text('No groups or questions are available for this exam.'),
-      );
-    }
     final parts = _contexts.map((item) => item.part).toSet().toList()..sort();
     final contexts = _contexts.where((item) => item.part == _part).toList();
     return Column(
@@ -95,6 +114,11 @@ class _ExamGroupsTabState extends State<ExamGroupsTab> {
             ),
             const Spacer(),
             IconButton(
+              onPressed: _openAgentImport,
+              tooltip: 'Import questions with agent',
+              icon: const Icon(Icons.smart_toy_outlined),
+            ),
+            IconButton(
               onPressed: () => _editContext(),
               tooltip: 'Add context',
               icon: const Icon(Icons.add),
@@ -106,23 +130,31 @@ class _ExamGroupsTabState extends State<ExamGroupsTab> {
             ),
           ],
         ),
-        const SizedBox(height: 8),
-        Wrap(
-          spacing: 8,
-          children: [
-            for (final part in parts)
-              ChoiceChip(
-                label: Text('Part $part'),
-                selected: part == _part,
-                onSelected: (_) => setState(() => _part = part),
-              ),
-          ],
-        ),
+        if (parts.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            children: [
+              for (final part in parts)
+                ChoiceChip(
+                  label: Text('Part $part'),
+                  selected: part == _part,
+                  onSelected: (_) => setState(() => _part = part),
+                ),
+            ],
+          ),
+        ],
         const SizedBox(height: 8),
         Expanded(
-          child: ListView(
-            children: [for (final item in contexts) _contextCard(item)],
-          ),
+          child: contexts.isEmpty
+              ? const Center(
+                  child: Text(
+                    'No groups or questions are available for this exam.',
+                  ),
+                )
+              : ListView(
+                  children: [for (final item in contexts) _contextCard(item)],
+                ),
         ),
       ],
     );

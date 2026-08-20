@@ -45,8 +45,11 @@ dependencies:
   pluto_grid: ^8.1.0
   desktop_multi_window: ^0.3.0
   syncfusion_flutter_pdfviewer: ^33.2.13
+  syncfusion_flutter_pdf: ^33.2.13
   google_generative_ai: ^0.4.7
   minio: ^3.5.8
+  window_manager: ^0.5.2
+  tray_manager: ^0.5.3
 
 dev_dependencies:
   flutter_test:
@@ -71,8 +74,8 @@ flutter:
   uses-material-design: true
 
   # To add assets to your application, add an assets section, like this:
-  # assets:
-  #   - images/a_dot_burr.jpeg
+  assets:
+    - windows/runner/resources/app_icon.ico
   #   - images/a_dot_ham.jpeg
 
   # An image asset can refer to one or more resolution-specific "variants", see
