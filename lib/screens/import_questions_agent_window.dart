@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
@@ -129,7 +128,7 @@ class _ImportQuestionsAgentWindowState
         ..pages = pages
         ..tempPath = tempPath;
       for (final part in _service.parts) {
-        if (_sectionForPart(part.part) != section) {
+        if ((part.part <= 4 ? 'listening' : 'reading') != section) {
           continue;
         }
         if (lane == 'questions') {
@@ -146,7 +145,7 @@ class _ImportQuestionsAgentWindowState
   }
 
   Future<void> _selectPartPages(ImportPartInput part, String lane) async {
-    final section = _sectionForPart(part.part);
+    final section = part.part <= 4 ? 'listening' : 'reading';
     final source = _service.sources[section]![lane]!;
     if (!source.isSelected) {
       _showMessage(
@@ -177,8 +176,6 @@ class _ImportQuestionsAgentWindowState
       }
     });
   }
-
-  String _sectionForPart(int part) => part <= 4 ? 'listening' : 'reading';
 
   Future<void> _editPrompt(ImportPartInput part) async {
     final controller = TextEditingController(text: part.prompt);
@@ -499,9 +496,4 @@ class _ImportQuestionsAgentWindowState
       ),
     ),
   );
-}
-
-Future<Widget> importWindowForArguments(String rawArguments) async {
-  final arguments = jsonDecode(rawArguments) as Map<String, dynamic>;
-  return ImportQuestionsAgentWindow(examId: arguments['examId'] as String);
 }

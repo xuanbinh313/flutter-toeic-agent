@@ -199,6 +199,12 @@ class _ExamGroupsTabState extends State<ExamGroupsTab> {
             style: const TextStyle(color: Color(0xff52616b)),
           ),
           const SizedBox(height: 10),
+          if (context.imagePath != null &&
+              File(context.imagePath!).existsSync())
+            Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: Image.file(File(context.imagePath!), fit: BoxFit.contain),
+            ),
           if (context.text.isNotEmpty)
             Align(
               alignment: Alignment.centerLeft,

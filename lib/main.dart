@@ -25,7 +25,9 @@ Future<void> main(List<String> args) async {
               seedColor: const Color(0xff1a73e8),
             ),
           ),
-          home: await importWindowForArguments(controller.arguments),
+          home: ImportQuestionsAgentWindow(
+            examId: arguments['examId'] as String,
+          ),
         ),
       );
       return;

@@ -396,6 +396,7 @@ class LocalDatabase {
     required double audioStart,
     required double audioEnd,
     List<ExamQuestion> questions = const [],
+    String? imagePath,
   }) async {
     final contextId = id ?? newUuid();
     final db = await database;
@@ -405,7 +406,13 @@ class LocalDatabase {
         'exam_id': examId,
         'part': part,
         'context_type': type,
-        'content': jsonEncode({'text': text}),
+        'content': jsonEncode({
+          'text': text,
+          if (imagePath != null && imagePath.isNotEmpty) ...{
+            'image_path': imagePath,
+            'image_filename': path.basename(imagePath),
+          },
+        }),
         'index': 0,
         'additional_meta': jsonEncode({
           'note': note,

@@ -10,6 +10,7 @@ import 'package:syncfusion_flutter_pdf/pdf.dart';
 import '../config.dart';
 import '../models.dart';
 import 'local_database.dart';
+import 'part_one_image_splitter.dart';
 
 class ImportPartInput {
   ImportPartInput(this.part) {
@@ -214,6 +215,16 @@ Use context_type "$type" and do not include another TOEIC part.''';
         throw StateError('Gemini returned an empty response.');
       }
       final contexts = _parseContexts(text, input.part);
+      final partOneImages =
+          input.part == 1 &&
+              input.questionPdf.isNotEmpty &&
+              input.questionPages.isNotEmpty
+          ? await PartOneImageSplitter().splitPdfPages(
+              input.questionPdf,
+              input.questionPages,
+            )
+          : const <String>[];
+      _applyPartOneImages(contexts, partOneImages);
       await _saveContexts(contexts);
       request.status = 'succeeded';
       onProgress?.call('Imported Part ${input.part}.');
@@ -248,6 +259,50 @@ correct_answer. Return no markdown or explanation outside the JSON object.''';
       value['part'] = selectedPart;
       return value;
     }).toList();
+  }
+
+  void _applyPartOneImages(
+    List<Map<String, dynamic>> contexts,
+    List<String> imagePaths,
+  ) {
+    if (imagePaths.isEmpty) {
+      return;
+    }
+    for (var index = 0; index < imagePaths.length; index++) {
+      final context = index < contexts.length
+          ? contexts[index]
+          : <String, dynamic>{
+              'part': 1,
+              'context_type': 'IMAGE_DIAGRAM',
+              'content': <String, dynamic>{},
+              'additional_meta': <String, dynamic>{'note': ''},
+              'questions': <Map<String, dynamic>>[],
+            };
+      if (index >= contexts.length) {
+        contexts.add(context);
+      }
+      context['part'] = 1;
+      context['context_type'] = 'IMAGE_DIAGRAM';
+      final content = Map<String, dynamic>.from(
+        context['content'] as Map? ?? {},
+      );
+      content['image_path'] = imagePaths[index];
+      content['image_filename'] = path.basename(imagePaths[index]);
+      context['content'] = content;
+      final questions = context['questions'] as List? ?? <dynamic>[];
+      if (questions.isEmpty) {
+        questions.add({
+          'question_number': index + 1,
+          'question_type': 'MULTIPLE_CHOICE',
+          'content':
+              'Look at the picture and choose the statement that best describes it.',
+          'options': <String>['', '', '', ''],
+          'correct_answer': '',
+          'additional_meta': <String, dynamic>{'note': ''},
+        });
+      }
+      context['questions'] = questions;
+    }
   }
 
   Future<void> _saveContexts(List<Map<String, dynamic>> contexts) async {
@@ -288,6 +343,7 @@ correct_answer. Return no markdown or explanation outside the JSON object.''';
             ? (meta['audio_end'] as num?)?.toDouble() ?? 0
             : 0,
         questions: mapped,
+        imagePath: content is Map ? content['image_path'] as String? : null,
       );
     }
   }
