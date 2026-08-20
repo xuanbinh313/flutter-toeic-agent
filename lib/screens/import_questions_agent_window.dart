@@ -3,9 +3,13 @@ import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
-import 'package:syncfusion_flutter_pdfviewer/pdfviewer.dart';
+import 'package:pasteboard/pasteboard.dart';
 
 import '../services/import_questions_agent_service.dart';
+import '../widgets/import_answer_sheet_panel.dart';
+import '../widgets/import_overall_pdf_source_panel.dart';
+import '../widgets/import_pdf_page_row.dart';
+import '../widgets/pdf_page_selector_dialog.dart';
 
 class ImportQuestionsAgentWindow extends StatefulWidget {
   const ImportQuestionsAgentWindow({super.key, required this.examId});
@@ -34,6 +38,9 @@ class _ImportQuestionsAgentWindowState
     if (file == null) {
       return;
     }
+    if (!mounted) {
+      return;
+    }
     setState(() {
       if (listening) {
         _service.listeningAnswerSheet = file;
@@ -43,7 +50,40 @@ class _ImportQuestionsAgentWindowState
     });
   }
 
-  Future<void> _pickPdf(ImportPartInput part, bool questions) async {
+  Future<void> _pasteAnswerSheet(bool listening) async {
+    final label = listening ? 'Listening' : 'Reading/Writing';
+    try {
+      final bytes = await Pasteboard.image;
+      if (bytes == null || bytes.isEmpty) {
+        if (mounted) {
+          _showMessage('Clipboard does not contain an image.');
+        }
+        return;
+      }
+      final file = File(
+        '${Directory.systemTemp.path}${Platform.pathSeparator}'
+        'junedu-${listening ? 'listening' : 'reading'}-answer-'
+        '${DateTime.now().microsecondsSinceEpoch}.png',
+      );
+      await file.writeAsBytes(bytes, flush: true);
+      if (mounted) {
+        setState(() {
+          if (listening) {
+            _service.listeningAnswerSheet = file.path;
+          } else {
+            _service.readingAnswerSheet = file.path;
+          }
+        });
+        _showMessage('$label answer sheet pasted from the clipboard.');
+      }
+    } catch (error) {
+      if (mounted) {
+        _showMessage('Could not paste the $label answer sheet: $error');
+      }
+    }
+  }
+
+  Future<void> _pickOverallPdf(String section, String lane) async {
     final result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
       allowedExtensions: ['pdf'],
@@ -52,84 +92,93 @@ class _ImportQuestionsAgentWindowState
     if (file == null) {
       return;
     }
-    final pages = await _selectPages(
-      file,
-      questions ? part.questionPages : part.transcriptPages,
+    if (!mounted) {
+      return;
+    }
+    final pages = await PdfPageSelectorDialog.show(
+      context,
+      pdfPath: file,
+      initialPages: _service.sources[section]![lane]!.path == file
+          ? _service.sources[section]![lane]!.pages
+          : const [],
     );
-    if (pages == null) return;
+    if (pages == null || !mounted) {
+      return;
+    }
+    String tempPath;
+    try {
+      tempPath = await _service.prepareOverallSourcePdf(
+        section: section,
+        lane: lane,
+        sourcePath: file,
+        selectedPages: pages,
+      );
+    } catch (error) {
+      if (mounted) {
+        _showMessage('Could not prepare the source PDF: $error');
+      }
+      return;
+    }
+    if (!mounted) {
+      return;
+    }
     setState(() {
-      if (questions) {
-        part.questionPdf = file;
-        part.questionPages = pages;
-      } else {
-        part.transcriptPdf = file;
-        part.transcriptPages = pages;
+      final source = _service.sources[section]![lane]!;
+      source
+        ..path = file
+        ..pages = pages
+        ..tempPath = tempPath;
+      for (final part in _service.parts) {
+        if (_sectionForPart(part.part) != section) {
+          continue;
+        }
+        if (lane == 'questions') {
+          part
+            ..questionPdf = ''
+            ..questionPages = [];
+        } else {
+          part
+            ..transcriptPdf = ''
+            ..transcriptPages = [];
+        }
       }
     });
   }
 
-  Future<List<int>?> _selectPages(String pdfPath, List<int> initial) async {
-    final controller = TextEditingController(
-      text: initial.map((page) => page + 1).join(', '),
+  Future<void> _selectPartPages(ImportPartInput part, String lane) async {
+    final section = _sectionForPart(part.part);
+    final source = _service.sources[section]![lane]!;
+    if (!source.isSelected) {
+      _showMessage(
+        'Select the overall ${lane == 'questions' ? 'question' : 'transcript'} PDF first.',
+      );
+      return;
+    }
+    final initial = lane == 'questions'
+        ? part.questionPages
+        : part.transcriptPages;
+    final pages = await PdfPageSelectorDialog.show(
+      context,
+      pdfPath: source.tempPath,
+      initialPages: initial,
     );
-    final result = await showDialog<List<int>>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Select PDF pages'),
-        content: SizedBox(
-          width: 900,
-          height: 620,
-          child: Row(
-            children: [
-              Expanded(child: SfPdfViewer.file(File(pdfPath))),
-              const SizedBox(width: 16),
-              SizedBox(
-                width: 250,
-                child: TextField(
-                  controller: controller,
-                  autofocus: true,
-                  decoration: const InputDecoration(
-                    labelText: 'Pages',
-                    hintText: 'Example: 1, 3-5, 9',
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () {
-              final pages = _parsePages(controller.text);
-              if (pages.isEmpty) return;
-              Navigator.pop(context, pages);
-            },
-            child: const Text('Save pages'),
-          ),
-        ],
-      ),
-    );
-    controller.dispose();
-    return result;
+    if (pages == null) {
+      return;
+    }
+    setState(() {
+      if (lane == 'questions') {
+        part
+          ..questionPdf = source.tempPath
+          ..questionPages = pages;
+      } else {
+        part
+          ..transcriptPdf = source.tempPath
+          ..transcriptPages = pages;
+      }
+    });
   }
 
-  List<int> _parsePages(String text) {
-    final pages = <int>{};
-    for (final token in text.split(',')) {
-      final range = token.trim().split('-');
-      final first = int.tryParse(range.first.trim());
-      final last = int.tryParse(range.last.trim());
-      if (first == null || last == null || first < 1 || last < first) continue;
-      for (var page = first; page <= last; page++) {
-        pages.add(page - 1);
-      }
-    }
-    return pages.toList()..sort();
-  }
+  String _sectionForPart(int part) => part <= 4 ? 'listening' : 'reading';
 
   Future<void> _editPrompt(ImportPartInput part) async {
     final controller = TextEditingController(text: part.prompt);
@@ -313,64 +362,57 @@ class _ImportQuestionsAgentWindowState
   ).showSnackBar(SnackBar(content: Text(message)));
 
   @override
-  Widget build(BuildContext context) => MaterialApp(
-    debugShowCheckedModeBanner: false,
-    theme: ThemeData(
-      useMaterial3: true,
-      colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xff1a73e8)),
-    ),
-    home: Scaffold(
-      appBar: AppBar(title: const Text('Import Questions Agent')),
-      body: DefaultTabController(
-        length: 2,
-        child: Column(
-          children: [
-            const TabBar(
-              tabs: [
-                Tab(text: 'Listening'),
-                Tab(text: 'Reading'),
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: const Text('Import Questions Agent')),
+    body: DefaultTabController(
+      length: 2,
+      child: Column(
+        children: [
+          const TabBar(
+            tabs: [
+              Tab(text: 'Listening'),
+              Tab(text: 'Reading'),
+            ],
+          ),
+          Expanded(
+            child: TabBarView(
+              children: [
+                _section('Listening', 1, 4),
+                _section('Reading', 5, 7),
               ],
             ),
-            Expanded(
-              child: TabBarView(
-                children: [
-                  _section('Listening', 1, 4),
-                  _section('Reading', 5, 7),
-                ],
-              ),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(12),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    _progress,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                OutlinedButton.icon(
+                  onPressed: _loading ? null : _showRequests,
+                  icon: const Icon(Icons.list_alt),
+                  label: const Text('Requests'),
+                ),
+                const SizedBox(width: 8),
+                FilledButton.icon(
+                  onPressed: _loading ? null : _send,
+                  icon: _loading
+                      ? const SizedBox.square(
+                          dimension: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.smart_toy_outlined),
+                  label: Text(_loading ? 'Sending...' : 'Send to agent'),
+                ),
+              ],
             ),
-            Padding(
-              padding: const EdgeInsets.all(12),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      _progress,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                  OutlinedButton.icon(
-                    onPressed: _loading ? null : _showRequests,
-                    icon: const Icon(Icons.list_alt),
-                    label: const Text('Requests'),
-                  ),
-                  const SizedBox(width: 8),
-                  FilledButton.icon(
-                    onPressed: _loading ? null : _send,
-                    icon: _loading
-                        ? const SizedBox.square(
-                            dimension: 16,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.smart_toy_outlined),
-                    label: Text(_loading ? 'Sending...' : 'Send to agent'),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
+          ),
+        ],
       ),
     ),
   );
@@ -378,33 +420,32 @@ class _ImportQuestionsAgentWindowState
   Widget _section(String name, int start, int end) => ListView(
     padding: const EdgeInsets.all(16),
     children: [
-      _answerSheet(name, start <= 4),
+      ImportAnswerSheetPanel(
+        title: name,
+        imagePath: start <= 4
+            ? _service.listeningAnswerSheet
+            : _service.readingAnswerSheet,
+        loading: _loading,
+        onPick: () => _pickAnswerSheet(start <= 4),
+        onPaste: () => _pasteAnswerSheet(start <= 4),
+      ),
+      ImportOverallPdfSourcePanel(
+        questionSource: _service
+            .sources[start <= 4 ? 'listening' : 'reading']!['questions']!,
+        transcriptSource: _service
+            .sources[start <= 4 ? 'listening' : 'reading']!['transcripts']!,
+        loading: _loading,
+        onPickQuestions: () =>
+            _pickOverallPdf(start <= 4 ? 'listening' : 'reading', 'questions'),
+        onPickTranscripts: () => _pickOverallPdf(
+          start <= 4 ? 'listening' : 'reading',
+          'transcripts',
+        ),
+      ),
       for (var part = start; part <= end; part++)
         _partCard(_service.parts[part - 1]),
     ],
   );
-
-  Widget _answerSheet(String name, bool listening) {
-    final value = listening
-        ? _service.listeningAnswerSheet
-        : _service.readingAnswerSheet;
-    return Card(
-      child: ListTile(
-        leading: const Icon(Icons.image_outlined),
-        title: Text('$name answer sheet'),
-        subtitle: Text(
-          value.isEmpty
-              ? 'No image selected'
-              : value.split(RegExp(r'[\\/]')).last,
-        ),
-        trailing: IconButton(
-          tooltip: 'Select answer-sheet image',
-          onPressed: _loading ? null : () => _pickAnswerSheet(listening),
-          icon: const Icon(Icons.attach_file),
-        ),
-      ),
-    );
-  }
 
   Widget _partCard(ImportPartInput part) => Card(
     child: Padding(
@@ -417,17 +458,19 @@ class _ImportQuestionsAgentWindowState
             style: const TextStyle(fontWeight: FontWeight.bold),
           ),
           if (part.part != 2)
-            _pdfRow(
-              'Question pages',
-              part.questionPdf,
-              part.questionPages,
-              () => _pickPdf(part, true),
+            ImportPdfPageRow(
+              label: 'Question pages',
+              filePath: part.questionPdf,
+              pages: part.questionPages,
+              loading: _loading,
+              onSelect: () => _selectPartPages(part, 'questions'),
             ),
-          _pdfRow(
-            'Transcript pages',
-            part.transcriptPdf,
-            part.transcriptPages,
-            () => _pickPdf(part, false),
+          ImportPdfPageRow(
+            label: 'Transcript pages',
+            filePath: part.transcriptPdf,
+            pages: part.transcriptPages,
+            loading: _loading,
+            onSelect: () => _selectPartPages(part, 'transcripts'),
           ),
           if (part.part == 2)
             TextFormField(
@@ -454,26 +497,6 @@ class _ImportQuestionsAgentWindowState
           ),
         ],
       ),
-    ),
-  );
-
-  Widget _pdfRow(
-    String label,
-    String file,
-    List<int> pages,
-    VoidCallback select,
-  ) => ListTile(
-    contentPadding: EdgeInsets.zero,
-    title: Text(label),
-    subtitle: Text(
-      file.isEmpty
-          ? 'No PDF selected'
-          : '${file.split(RegExp(r'[\\/]')).last}: pages ${pages.map((page) => page + 1).join(', ')}',
-    ),
-    trailing: OutlinedButton.icon(
-      onPressed: _loading ? null : select,
-      icon: const Icon(Icons.picture_as_pdf_outlined),
-      label: const Text('Select'),
     ),
   );
 }

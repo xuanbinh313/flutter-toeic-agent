@@ -1,7 +1,7 @@
 import 'dart:convert';
 
 import 'package:desktop_multi_window/desktop_multi_window.dart';
-import 'package:flutter/widgets.dart';
+import 'package:flutter/material.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'app.dart';
@@ -16,7 +16,18 @@ Future<void> main(List<String> args) async {
   if (controller.arguments.isNotEmpty) {
     final arguments = jsonDecode(controller.arguments) as Map<String, dynamic>;
     if (arguments['window'] == 'import-questions-agent') {
-      runApp(await importWindowForArguments(controller.arguments));
+      runApp(
+        MaterialApp(
+          debugShowCheckedModeBanner: false,
+          theme: ThemeData(
+            useMaterial3: true,
+            colorScheme: ColorScheme.fromSeed(
+              seedColor: const Color(0xff1a73e8),
+            ),
+          ),
+          home: await importWindowForArguments(controller.arguments),
+        ),
+      );
       return;
     }
   }

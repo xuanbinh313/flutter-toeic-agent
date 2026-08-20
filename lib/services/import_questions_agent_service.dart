@@ -4,6 +4,7 @@ import 'dart:typed_data';
 
 import 'package:google_generative_ai/google_generative_ai.dart';
 import 'package:path/path.dart' as path;
+import 'package:path_provider/path_provider.dart';
 import 'package:syncfusion_flutter_pdf/pdf.dart';
 
 import '../config.dart';
@@ -29,6 +30,15 @@ class ImportPartInput {
       (transcriptPdf.isNotEmpty && transcriptPages.isNotEmpty);
 }
 
+class OverallPdfSource {
+  String path = '';
+  List<int> pages = [];
+  String tempPath = '';
+
+  bool get isSelected =>
+      path.isNotEmpty && pages.isNotEmpty && tempPath.isNotEmpty;
+}
+
 class AgentRequest {
   AgentRequest({required this.part, required this.prompt});
 
@@ -45,6 +55,16 @@ class ImportQuestionsAgentService {
 
   final String examId;
   final parts = List.generate(7, (index) => ImportPartInput(index + 1));
+  final sources = {
+    'listening': {
+      'questions': OverallPdfSource(),
+      'transcripts': OverallPdfSource(),
+    },
+    'reading': {
+      'questions': OverallPdfSource(),
+      'transcripts': OverallPdfSource(),
+    },
+  };
   String listeningAnswerSheet = '';
   String readingAnswerSheet = '';
   final requests = <AgentRequest>[];
@@ -72,6 +92,41 @@ questions. Each question needs question_number, question_type, content,
 options, correct_answer, additional_meta {"note":""}.
 Use natural Vietnamese in every non-empty note. Extract only questions $range.
 Use context_type "$type" and do not include another TOEIC part.''';
+  }
+
+  Future<String> prepareOverallSourcePdf({
+    required String section,
+    required String lane,
+    required String sourcePath,
+    required List<int> selectedPages,
+  }) async {
+    final document = PdfDocument(
+      inputBytes: await File(sourcePath).readAsBytes(),
+    );
+    try {
+      final pages = selectedPages.toSet();
+      for (var index = document.pages.count - 1; index >= 0; index--) {
+        if (!pages.contains(index)) {
+          document.pages.removeAt(index);
+        }
+      }
+      if (document.pages.count == 0) {
+        throw StateError(
+          'Selected pages are outside ${path.basename(sourcePath)}.',
+        );
+      }
+      final directory = await getTemporaryDirectory();
+      final target = File(
+        path.join(
+          directory.path,
+          'junedu_${section}_${lane}_${DateTime.now().microsecondsSinceEpoch}.pdf',
+        ),
+      );
+      await target.writeAsBytes(await document.save(), flush: true);
+      return target.path;
+    } finally {
+      document.dispose();
+    }
   }
 
   Future<void> send({void Function(String message)? onProgress}) async {

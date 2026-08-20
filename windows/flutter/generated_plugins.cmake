@@ -6,6 +6,7 @@ list(APPEND FLUTTER_PLUGIN_LIST
   app_links
   audioplayers_windows
   desktop_multi_window
+  pasteboard
   screen_retriever_windows
   sqlite3_flutter_libs
   syncfusion_pdfviewer_windows
