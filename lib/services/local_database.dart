@@ -447,6 +447,31 @@ class LocalDatabase {
     });
   }
 
+  Future<void> updateContextAudioSegment(
+    String contextId, {
+    required double start,
+    required double end,
+  }) async {
+    final db = await database;
+    final rows = await db.query(
+      'exam_contexts',
+      columns: ['additional_meta'],
+      where: 'id = ?',
+      whereArgs: [contextId],
+      limit: 1,
+    );
+    if (rows.isEmpty) return;
+    final meta = _jsonMap(rows.first['additional_meta']);
+    meta['audio_start'] = start;
+    meta['audio_end'] = end;
+    await db.update(
+      'exam_contexts',
+      {'additional_meta': jsonEncode(meta), 'dirty': 1},
+      where: 'id = ?',
+      whereArgs: [contextId],
+    );
+  }
+
   Future<void> setContextTag(String contextId, String tag, bool enabled) async {
     final db = await database;
     if (enabled) {

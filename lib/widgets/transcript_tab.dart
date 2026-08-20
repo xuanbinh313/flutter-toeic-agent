@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:audioplayers/audioplayers.dart';
@@ -7,7 +6,10 @@ import 'package:google_generative_ai/google_generative_ai.dart';
 
 import '../config.dart';
 import '../models.dart';
+import '../services/audio_segment_detection_service.dart';
 import '../services/local_database.dart';
+import '../services/transcript_translation_service.dart';
+import 'detected_audio_segments_dialog.dart';
 import 'transcript_chunk_grid.dart';
 
 class TranscriptTab extends StatefulWidget {
@@ -38,6 +40,7 @@ class _TranscriptTabState extends State<TranscriptTab> {
   bool _hasChanges = false;
   bool _isLoaded = false;
   bool _isRepeating = false;
+  bool _isDetectingAudio = false;
   bool _isTranslating = false;
   bool _transcriptRefreshQueued = false;
   int _gridRevision = 0;
@@ -283,69 +286,55 @@ class _TranscriptTabState extends State<TranscriptTab> {
     if (mounted) setState(() => _hasChanges = false);
   }
 
-  void _autoDetectAudio() {
-    final message = _chunks.isEmpty
-        ? 'No local SRT segments are available for this exam.'
-        : 'Using ${_chunks.length} local SRT segments as the detected audio transcript.';
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(message)));
+  Future<void> _autoDetectAudio() async {
+    if (_chunks.isEmpty) {
+      _showMessage('No local SRT segments are available for this exam.');
+      return;
+    }
+    if (AppConfig.geminiApiKey.isEmpty) {
+      _showMessage('Set GEMINI_API_KEY at build time to auto-detect audio.');
+      return;
+    }
+    setState(() => _isDetectingAudio = true);
+    try {
+      final contexts = await LocalDatabase.instance.loadExamContexts(
+        widget.examId,
+      );
+      final results = await const AudioSegmentDetectionService().detect(
+        chunks: _chunks,
+        contexts: contexts,
+      );
+      if (!mounted) return;
+      if (results.isEmpty) {
+        _showMessage('No matching audio segments were detected.');
+        return;
+      }
+      final approved = await showDetectedAudioSegmentsDialog(context, results);
+      if (approved == null || approved.isEmpty) return;
+      for (final segment in approved) {
+        await LocalDatabase.instance.updateContextAudioSegment(
+          segment.context.id,
+          start: segment.start,
+          end: segment.end,
+        );
+      }
+      _showMessage('Saved audio segments for ${approved.length} context(s).');
+    } on GenerativeAIException catch (error) {
+      _showMessage('Audio detection failed: ${error.message}');
+    } on FormatException catch (error) {
+      _showMessage('Audio detection returned invalid JSON: ${error.message}');
+    } catch (error) {
+      _showMessage('Audio detection failed: $error');
+    } finally {
+      if (mounted) setState(() => _isDetectingAudio = false);
+    }
   }
 
   Future<void> _translateToVietnamese() async {
-    if (AppConfig.geminiApiKey.isEmpty) {
-      _showMessage(
-        'Set GEMINI_API_KEY at build time to translate transcripts.',
-      );
-      return;
-    }
-    final entries = _chunks
-        .where((chunk) => chunk.text.trim().isNotEmpty)
-        .map((chunk) => {'id': chunk.id, 'text': chunk.text})
-        .toList();
-    if (entries.isEmpty) {
-      _showMessage('No transcript text is available to translate.');
-      return;
-    }
     setState(() => _isTranslating = true);
     try {
-      final agent = GenerativeModel(
-        model: AppConfig.geminiModel,
-        apiKey: AppConfig.geminiApiKey,
-        generationConfig: GenerationConfig(
-          temperature: 0,
-          responseMimeType: 'application/json',
-        ),
-      );
-      final response = await agent.generateContent([
-        Content.text(
-          'Translate every English transcript to natural Vietnamese. '
-          'Return a JSON object only, mapping each supplied id to its '
-          'translation. Input: ${jsonEncode(entries)}',
-        ),
-      ]);
-      if (response.candidates.isEmpty) {
-        throw StateError(
-          'The translation agent did not return a candidate: '
-          '${response.promptFeedback ?? 'request was rejected'}.',
-        );
-      }
-      final raw = response.text;
-      if (raw == null || raw.isEmpty) {
-        throw StateError('The translation agent returned no text.');
-      }
-      final cleaned = raw
-          .replaceAll(RegExp(r'^```json\s*|\s*```$', multiLine: true), '')
-          .trim();
-      final translations = jsonDecode(cleaned) as Map<String, dynamic>;
-      var translatedCount = 0;
-      for (final chunk in _chunks) {
-        final translation = translations[chunk.id];
-        if (translation is String && translation.trim().isNotEmpty) {
-          chunk.hint = translation.trim();
-          translatedCount++;
-        }
-      }
+      final translatedCount = await const TranscriptTranslationService()
+          .translate(_chunks);
       if (translatedCount == 0) {
         _showMessage('No transcript translations were returned.');
         return;
@@ -436,9 +425,11 @@ class _TranscriptTabState extends State<TranscriptTab> {
         ),
       ),
       OutlinedButton.icon(
-        onPressed: _autoDetectAudio,
+        onPressed: _isDetectingAudio ? null : _autoDetectAudio,
         icon: const Icon(Icons.auto_awesome),
-        label: const Text('Auto-detect Audio'),
+        label: Text(
+          _isDetectingAudio ? 'Detecting audio...' : 'Auto-detect Audio',
+        ),
       ),
       const SizedBox(width: 8),
       OutlinedButton.icon(

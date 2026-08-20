@@ -47,6 +47,30 @@ class SrtChunk {
   String? hint;
 }
 
+class AudioSegmentMapping {
+  const AudioSegmentMapping({
+    required this.contextId,
+    required this.startChunkIndex,
+    required this.endChunkIndex,
+  });
+
+  final String contextId;
+  final int startChunkIndex;
+  final int endChunkIndex;
+}
+
+class DetectedAudioSegment {
+  const DetectedAudioSegment({
+    required this.context,
+    required this.start,
+    required this.end,
+  });
+
+  final ExamContext context;
+  final double start;
+  final double end;
+}
+
 class ExamContext {
   ExamContext({
     required this.id,
