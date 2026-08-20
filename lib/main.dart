@@ -34,7 +34,6 @@ Future<void> main(List<String> args) async {
     }
   }
   await windowManager.ensureInitialized();
-  await windowManager.setPreventClose(true);
   windowManager.waitUntilReadyToShow(const WindowOptions(), () async {
     await windowManager.show();
     await windowManager.focus();

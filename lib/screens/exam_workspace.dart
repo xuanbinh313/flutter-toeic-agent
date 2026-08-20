@@ -1,10 +1,8 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:window_manager/window_manager.dart';
 
 import '../models.dart';
+import '../services/background_app_service.dart';
 import 'exam_session_page.dart';
 import '../widgets/dictation_practice.dart';
 import '../widgets/exam_details_form.dart';
@@ -23,14 +21,12 @@ class ExamWorkspace extends StatefulWidget {
 
 class _ExamWorkspaceState extends State<ExamWorkspace> {
   final _reminderMinutes = TextEditingController(text: '10');
-  Timer? _reminder;
 
   Exam get exam => widget.exam;
   VoidCallback get changed => widget.changed;
 
   @override
   void dispose() {
-    _reminder?.cancel();
     _reminderMinutes.dispose();
     super.dispose();
   }
@@ -43,12 +39,9 @@ class _ExamWorkspaceState extends State<ExamWorkspace> {
       );
       return;
     }
-    _reminder?.cancel();
-    _reminder = Timer(Duration(minutes: minutes), () async {
-      await windowManager.show();
-      await windowManager.focus();
-    });
-    await windowManager.hide();
+    await BackgroundAppService.instance.scheduleAndHide(
+      Duration(minutes: minutes),
+    );
   }
 
   @override
