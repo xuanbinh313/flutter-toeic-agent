@@ -1,9 +1,12 @@
+import 'dart:convert';
+
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import '../config.dart';
 import 'cloudflare_r2_service.dart';
 import 'local_database.dart';
+import 'local_schema_service.dart';
 import 'uuid.dart';
 
 typedef SyncProgress = void Function(String message);
@@ -297,11 +300,17 @@ class SyncService {
           .from(table)
           .select()
           .eq('user_id', userId);
+      await LocalSchemaService.ensureColumns(
+        db,
+        table,
+        remote.expand((row) => row.keys),
+      );
       for (final row in remote) {
-        await db.insert(table, {
-          ...row,
-          'dirty': 0,
-        }, conflictAlgorithm: ConflictAlgorithm.replace);
+        await db.insert(
+          table,
+          _localPayload(row),
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
         downloaded++;
       }
     }
@@ -320,6 +329,11 @@ class SyncService {
         .from('mediafiles')
         .select()
         .eq('user_id', userId);
+    await LocalSchemaService.ensureColumns(
+      db,
+      'mediafiles',
+      remote.expand((row) => row.keys),
+    );
     var downloaded = 0;
     for (var index = 0; index < remote.length; index++) {
       onProgress?.call('Downloading media ${index + 1} of ${remote.length}...');
@@ -328,18 +342,35 @@ class SyncService {
       final isDeleted = row['is_deleted'] == true || row['is_deleted'] == 1;
       if (filename.isNotEmpty && !isDeleted) {
         final localFile = CloudflareR2Service.instance.localFile(filename);
-        await CloudflareR2Service.instance.download(
-          localFile,
-          userId,
-          filename,
-        );
-        downloaded++;
+        if (!await localFile.exists()) {
+          await CloudflareR2Service.instance.download(
+            localFile,
+            userId,
+            filename,
+          );
+          downloaded++;
+        }
       }
-      await db.insert('mediafiles', {
-        ...row,
-        'dirty': 0,
-      }, conflictAlgorithm: ConflictAlgorithm.replace);
+      await db.insert(
+        'mediafiles',
+        _localPayload(row),
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
     }
     return downloaded;
   }
+
+  /// Supabase decodes PostgreSQL booleans as Dart bools, while sqflite only
+  /// accepts SQLite-compatible scalar values. JSON columns are decoded as
+  /// maps/lists too, and must be encoded before insertion.
+  Map<String, Object?> _localPayload(Map<String, dynamic> row) => {
+    for (final entry in row.entries) entry.key: _sqliteValue(entry.value),
+    'dirty': 0,
+  };
+
+  Object? _sqliteValue(Object? value) => switch (value) {
+    bool value => value ? 1 : 0,
+    Map() || List() => jsonEncode(value),
+    _ => value,
+  };
 }

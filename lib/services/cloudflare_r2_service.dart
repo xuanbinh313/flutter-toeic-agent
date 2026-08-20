@@ -28,11 +28,22 @@ class CloudflareR2Service {
   Future<void> download(File localFile, String userId, String filename) async {
     _validateSettings();
     await localFile.parent.create(recursive: true);
-    await _client.fGetObject(
-      _bucket,
-      _objectKey(userId, filename),
-      localFile.path,
-    );
+    // fGetObject calls statObject, which requests object ACLs by default.
+    // Cloudflare R2 does not implement GetObjectAcl, so stream the object
+    // directly instead.
+    final temporary = File('${localFile.path}.download');
+    if (await temporary.exists()) await temporary.delete();
+    try {
+      final stream = await _client.getObject(
+        _bucket,
+        _objectKey(userId, filename),
+      );
+      final sink = temporary.openWrite();
+      await stream.pipe(sink);
+      await temporary.copy(localFile.path);
+    } finally {
+      if (await temporary.exists()) await temporary.delete();
+    }
   }
 
   File localFile(String filename) {

@@ -7,11 +7,13 @@ import 'package:window_manager/window_manager.dart';
 import 'app.dart';
 import 'config.dart';
 import 'screens/import_questions_agent_window.dart';
+import 'services/local_database.dart';
 export 'app.dart';
 
 Future<void> main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
   await AppConfig.initialize();
+  await LocalDatabase.instance.initialize();
   final controller = await WindowController.fromCurrentEngine();
   if (controller.arguments.isNotEmpty) {
     final arguments = jsonDecode(controller.arguments) as Map<String, dynamic>;

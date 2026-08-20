@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../models.dart';
 import '../services/attempt_detail_service.dart';
+import '../services/exam_summary_service.dart';
 import '../services/local_database.dart';
 
 class ExamTakeOverview extends StatefulWidget {
@@ -42,8 +43,8 @@ class _ExamTakeOverviewState extends State<ExamTakeOverview> {
   Future<void> _load() async {
     final results = await Future.wait([
       LocalDatabase.instance.loadExamContexts(widget.exam.id),
-      LocalDatabase.instance.loadExamQuestionTags(widget.exam.id),
-      LocalDatabase.instance.loadAttemptSummaries(widget.exam.id),
+      ExamSummaryService.instance.loadQuestionTags(widget.exam.id),
+      ExamSummaryService.instance.loadAttempts(widget.exam.id),
       LocalDatabase.instance.loadSrtChunks(widget.exam.id),
     ]);
     if (mounted) {

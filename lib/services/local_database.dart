@@ -7,6 +7,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import '../config.dart';
 import '../models.dart';
+import 'local_schema_service.dart';
 import 'uuid.dart';
 
 class LocalDatabase {
@@ -14,12 +15,15 @@ class LocalDatabase {
   static final instance = LocalDatabase._();
   Database? _database;
 
+  Future<void> initialize() async => database.then((_) {});
+
   Future<Database> get database async {
     if (_database != null) return _database!;
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
     final databasePath = await _findDatabasePath();
     _database = await openDatabase(databasePath, version: 1);
+    await LocalSchemaService.ensure(_database!);
     return _database!;
   }
 
@@ -225,43 +229,6 @@ class LocalDatabase {
         questions: byContext[row['id'] as String] ?? [],
         imagePath: content['image_path'] as String?,
         imageFilename: content['image_filename'] as String?,
-      );
-    }).toList();
-  }
-
-  Future<List<String>> loadExamQuestionTags(String examId) async {
-    final rows = await (await database).rawQuery(
-      '''
-      SELECT DISTINCT t.tag_name FROM user_question_tags t
-      JOIN exam_contexts c ON c.id = t.context_id
-      WHERE c.exam_id = ? ORDER BY t.tag_name COLLATE NOCASE
-    ''',
-      [examId],
-    );
-    return rows.map((row) => row['tag_name'] as String).toList();
-  }
-
-  Future<List<AttemptSummary>> loadAttemptSummaries(String examId) async {
-    final rows = await (await database).query(
-      'exam_attempts',
-      where: 'exam_id = ?',
-      whereArgs: [examId],
-      orderBy: 'created_at DESC',
-    );
-    return rows.map((row) {
-      final meta = _jsonMap(row['additional_meta']);
-      return AttemptSummary(
-        id: row['id'] as String,
-        createdAt: row['created_at'] as String? ?? '',
-        durationSeconds: (row['duration_seconds'] as num?)?.toInt() ?? 0,
-        totalCorrect: (row['total_correct'] as num?)?.toInt() ?? 0,
-        totalQuestions: (row['total_questions'] as num?)?.toInt() ?? 0,
-        selectedParts: _jsonList(
-          meta['selected_parts'],
-        ).map((item) => int.tryParse('$item')).whereType<int>().toList(),
-        questionTags: _jsonList(
-          meta['question_tags'],
-        ).map((item) => '$item').toList(),
       );
     }).toList();
   }
