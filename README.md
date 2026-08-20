@@ -13,7 +13,17 @@ flutter run --dart-define=JUNEDU_DB_PATH=C:\data\exams.db
 
 ## Supabase production configuration
 
-The compiled app never reads `.env`. Supply configuration at build time instead:
+The `.env` file is bundled into every build, including release builds. Keep the
+Supabase URL and publishable/anon key in it:
+
+```dotenv
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_KEY=your-publishable-key
+SUPABASE_SCHEMA=public
+```
+
+`--dart-define` values still take precedence when you need to override a value
+for a particular build:
 
 ```powershell
 flutter build windows `

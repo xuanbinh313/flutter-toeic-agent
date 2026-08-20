@@ -1,9 +1,7 @@
-import 'dart:io';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 
-import 'package:flutter/foundation.dart';
-
-/// Build-time values are always preferred. During debug development only,
-/// missing values are loaded from the untracked project `.env` file.
+/// Build-time values are always preferred. Missing values are loaded from the
+/// bundled `.env` asset in every build mode, including release builds.
 abstract final class AppConfig {
   static String _supabaseUrl = const String.fromEnvironment('SUPABASE_URL');
   static String _supabaseKey = const String.fromEnvironment('SUPABASE_KEY');
@@ -50,12 +48,17 @@ abstract final class AppConfig {
       r2SecretKey.isNotEmpty &&
       r2Bucket.isNotEmpty;
 
-  /// Release builds never read `.env`; supply their values with `--dart-define`.
+  /// Loads the `.env` Flutter asset. This is deliberately not read with
+  /// `File('.env')`, because packaged desktop apps do not run from the project
+  /// directory and therefore cannot find that file at runtime.
   static Future<void> initialize() async {
-    if (!kDebugMode) return;
-    final file = File('.env');
-    if (!await file.exists()) return;
-    final values = _parse(await file.readAsLines());
+    try {
+      await dotenv.load(fileName: '.env');
+    } catch (_) {
+      // Keep the app usable for builds that intentionally omit `.env`.
+      return;
+    }
+    final values = dotenv.env;
     _supabaseUrl = _supabaseUrl.isNotEmpty
         ? _supabaseUrl
         : values['SUPABASE_URL'] ?? '';
@@ -100,24 +103,5 @@ abstract final class AppConfig {
               values['CLOUDFLARE_BUCKET'] ??
               values['CLOUDFLARE_BUCKET_NAME'] ??
               '';
-  }
-
-  static Map<String, String> _parse(List<String> lines) {
-    final values = <String, String>{};
-    for (final line in lines) {
-      final trimmed = line.trim();
-      if (trimmed.isEmpty || trimmed.startsWith('#')) continue;
-      final separator = trimmed.indexOf('=');
-      if (separator < 1) continue;
-      final key = trimmed.substring(0, separator).trim();
-      var value = trimmed.substring(separator + 1).trim();
-      if (value.length > 1 &&
-          ((value.startsWith('"') && value.endsWith('"')) ||
-              (value.startsWith("'") && value.endsWith("'")))) {
-        value = value.substring(1, value.length - 1);
-      }
-      values[key] = value;
-    }
-    return values;
   }
 }
