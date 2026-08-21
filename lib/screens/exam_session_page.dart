@@ -9,7 +9,6 @@ import '../services/range_audio_player.dart';
 import '../widgets/context_tag_dialog.dart';
 import '../widgets/reminder_button.dart';
 import 'session_question.dart';
-
 class ExamSessionPage extends StatefulWidget {
   const ExamSessionPage({
     super.key,
@@ -25,11 +24,9 @@ class ExamSessionPage extends StatefulWidget {
   final List<int> parts;
   final List<String> tags;
   final List<String> questionIds;
-
   @override
   State<ExamSessionPage> createState() => _ExamSessionPageState();
 }
-
 class _ExamSessionPageState extends State<ExamSessionPage> {
   late final _rangePlayer = RangeAudioPlayer(
     onChanged: () {
@@ -186,9 +183,16 @@ class _ExamSessionPageState extends State<ExamSessionPage> {
     if (_showResult) return _result();
     if (_questions.isEmpty) {
       return Scaffold(
-        appBar: AppBar(title: const Text('Exam')),
-        body: const Center(
-          child: Text('No questions match the selected mode or filters.'),
+        body: SafeArea(
+          child: Center(
+            child: TextButton.icon(
+              onPressed: () => Navigator.pop(context),
+              icon: const Icon(Icons.arrow_back),
+              label: const Text(
+                'No questions match the selected mode or filters.',
+              ),
+            ),
+          ),
         ),
       );
     }
@@ -200,57 +204,61 @@ class _ExamSessionPageState extends State<ExamSessionPage> {
         )
         .toList();
     return Scaffold(
-      appBar: AppBar(
-        title: Text(widget.realTest ? 'Real Test' : 'Practice'),
-        actions: [
-          const ReminderButton(compact: true),
-          Padding(
-            padding: const EdgeInsets.only(right: 18),
-            child: Center(
-              child: Text(
-                widget.realTest && widget.exam.duration > 0
-                    ? 'Remaining ${_format((widget.exam.duration * 60 - _elapsed).clamp(0, widget.exam.duration * 60))}'
-                    : 'Elapsed ${_format(_elapsed)}',
-              ),
-            ),
-          ),
-        ],
-      ),
-      body: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          children: [
-            Align(
-              alignment: Alignment.centerLeft,
-              child: Wrap(
-                spacing: 8,
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            children: [
+              Row(
                 children: [
-                  ChoiceChip(
-                    label: const Text('All Parts'),
-                    selected: _activePart == null,
-                    onSelected: (_) => setState(() => _activePart = null),
+                  IconButton(
+                    onPressed: () => Navigator.pop(context),
+                    tooltip: 'Back to exam',
+                    icon: const Icon(Icons.arrow_back),
                   ),
-                  for (final part in parts)
-                    ChoiceChip(
-                      label: Text('Part $part'),
-                      selected: _activePart == part,
-                      onSelected: (_) => setState(() => _activePart = part),
+                  Expanded(
+                    child: SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                        children: [
+                          ChoiceChip(
+                            label: const Text('All Parts'),
+                            selected: _activePart == null,
+                            onSelected: (_) =>
+                                setState(() => _activePart = null),
+                          ),
+                          for (final part in parts)
+                            ChoiceChip(
+                              label: Text('Part $part'),
+                              selected: _activePart == part,
+                              onSelected: (_) =>
+                                  setState(() => _activePart = part),
+                            ),
+                        ],
+                      ),
                     ),
+                  ),
+                  const ReminderButton(compact: true),
+                  Text(
+                    widget.realTest && widget.exam.duration > 0
+                        ? 'Remaining ${_format((widget.exam.duration * 60 - _elapsed).clamp(0, widget.exam.duration * 60))}'
+                        : 'Elapsed ${_format(_elapsed)}',
+                  ),
                 ],
               ),
-            ),
-            const SizedBox(height: 10),
-            Expanded(child: ListView(children: _contextSections(questions))),
-            const SizedBox(height: 8),
-            Align(
-              alignment: Alignment.centerRight,
-              child: FilledButton.icon(
-                onPressed: _submitting ? null : _submit,
-                icon: const Icon(Icons.check),
-                label: Text(_submitting ? 'Submitting...' : 'Submit'),
+              const SizedBox(height: 10),
+              Expanded(child: ListView(children: _contextSections(questions))),
+              const SizedBox(height: 8),
+              Align(
+                alignment: Alignment.centerRight,
+                child: FilledButton.icon(
+                  onPressed: _submitting ? null : _submit,
+                  icon: const Icon(Icons.check),
+                  label: Text(_submitting ? 'Submitting...' : 'Submit'),
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -387,67 +395,62 @@ class _ExamSessionPageState extends State<ExamSessionPage> {
             ],
           ),
         ),
-        if (!widget.realTest)
-          TextButton.icon(
-            onPressed: () => setState(() => _answers[item.question.id] = null),
-            icon: const Icon(Icons.skip_next),
-            label: const Text('Skip'),
-          ),
       ],
     ),
   );
 
   Widget _result() => Scaffold(
-    appBar: AppBar(title: const Text('Results')),
-    body: Padding(
-      padding: const EdgeInsets.all(24),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Score: $_correct / ${_questions.length} (${(_questions.isEmpty ? 0 : _correct * 100 / _questions.length).toStringAsFixed(1)}%)',
-            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 10,
-            children: [
-              _counter('Correct', _correct, Colors.green),
-              _counter(
-                'Wrong',
-                _questions
-                    .where(
-                      (item) =>
-                          _answers[item.question.id] != null &&
-                          _answers[item.question.id] !=
-                              item.question.correctAnswer.toUpperCase(),
-                    )
-                    .length,
-                Colors.red,
-              ),
-              _counter(
-                'Skipped',
-                _questions
-                    .where((item) => _answers[item.question.id] == null)
-                    .length,
-                Colors.grey,
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Expanded(
-            child: ListView(
-              children: [for (final item in _questions) _resultCard(item)],
+    body: SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Score: $_correct / ${_questions.length} (${(_questions.isEmpty ? 0 : _correct * 100 / _questions.length).toStringAsFixed(1)}%)',
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
-          ),
-          Align(
-            alignment: Alignment.centerRight,
-            child: FilledButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Back to Exam'),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 10,
+              children: [
+                _counter('Correct', _correct, Colors.green),
+                _counter(
+                  'Wrong',
+                  _questions
+                      .where(
+                        (item) =>
+                            _answers[item.question.id] != null &&
+                            _answers[item.question.id] !=
+                                item.question.correctAnswer.toUpperCase(),
+                      )
+                      .length,
+                  Colors.red,
+                ),
+                _counter(
+                  'Skipped',
+                  _questions
+                      .where((item) => _answers[item.question.id] == null)
+                      .length,
+                  Colors.grey,
+                ),
+              ],
             ),
-          ),
-        ],
+            const SizedBox(height: 12),
+            Expanded(
+              child: ListView(
+                children: [for (final item in _questions) _resultCard(item)],
+              ),
+            ),
+            Align(
+              alignment: Alignment.centerRight,
+              child: FilledButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Back to Exam'),
+              ),
+            ),
+          ],
+        ),
       ),
     ),
   );
