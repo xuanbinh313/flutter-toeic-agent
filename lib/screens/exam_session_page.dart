@@ -7,6 +7,8 @@ import '../models.dart';
 import '../services/local_database.dart';
 import '../services/range_audio_player.dart';
 import '../widgets/context_tag_dialog.dart';
+import '../widgets/reminder_button.dart';
+import 'session_question.dart';
 
 class ExamSessionPage extends StatefulWidget {
   const ExamSessionPage({
@@ -35,7 +37,7 @@ class _ExamSessionPageState extends State<ExamSessionPage> {
     },
   );
   final _answers = <String, String?>{};
-  List<_SessionQuestion> _questions = [];
+  List<SessionQuestion> _questions = [];
   Map<String, Set<String>> _contextTags = {};
   DateTime? _startedAt;
   Timer? _timer;
@@ -72,7 +74,7 @@ class _ExamSessionPageState extends State<ExamSessionPage> {
           for (final question in context.questions)
             if (widget.questionIds.isEmpty ||
                 widget.questionIds.contains(question.id))
-              _SessionQuestion(context, question),
+              SessionQuestion(context, question),
     ];
     _startedAt = DateTime.now();
     _timer = Timer.periodic(const Duration(seconds: 1), (_) => _tick());
@@ -201,6 +203,7 @@ class _ExamSessionPageState extends State<ExamSessionPage> {
       appBar: AppBar(
         title: Text(widget.realTest ? 'Real Test' : 'Practice'),
         actions: [
+          const ReminderButton(compact: true),
           Padding(
             padding: const EdgeInsets.only(right: 18),
             child: Center(
@@ -253,8 +256,8 @@ class _ExamSessionPageState extends State<ExamSessionPage> {
     );
   }
 
-  List<Widget> _contextSections(List<_SessionQuestion> questions) {
-    final grouped = <String, List<_SessionQuestion>>{};
+  List<Widget> _contextSections(List<SessionQuestion> questions) {
+    final grouped = <String, List<SessionQuestion>>{};
     for (final item in questions) {
       grouped.putIfAbsent(item.context.id, () => []).add(item);
     }
@@ -266,7 +269,7 @@ class _ExamSessionPageState extends State<ExamSessionPage> {
 
   Widget _contextCard(
     ExamContext context,
-    List<_SessionQuestion> questions,
+    List<SessionQuestion> questions,
   ) => Card(
     elevation: 0,
     child: Padding(
@@ -355,7 +358,7 @@ class _ExamSessionPageState extends State<ExamSessionPage> {
     );
   }
 
-  Widget _questionCard(_SessionQuestion item) => Padding(
+  Widget _questionCard(SessionQuestion item) => Padding(
     padding: const EdgeInsets.only(top: 10),
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -469,7 +472,7 @@ class _ExamSessionPageState extends State<ExamSessionPage> {
       ],
     ),
   );
-  Widget _resultCard(_SessionQuestion item) {
+  Widget _resultCard(SessionQuestion item) {
     final answer = _answers[item.question.id];
     final correct = answer == item.question.correctAnswer.toUpperCase();
     return Card(
@@ -491,10 +494,4 @@ class _ExamSessionPageState extends State<ExamSessionPage> {
 
   String _format(int seconds) =>
       '${(seconds ~/ 60).toString().padLeft(2, '0')}:${(seconds % 60).toString().padLeft(2, '0')}';
-}
-
-class _SessionQuestion {
-  const _SessionQuestion(this.context, this.question);
-  final ExamContext context;
-  final ExamQuestion question;
 }

@@ -1,13 +1,12 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import '../models.dart';
-import '../services/background_app_service.dart';
 import 'exam_session_page.dart';
 import '../widgets/dictation_practice.dart';
 import '../widgets/exam_details_form.dart';
 import '../widgets/exam_groups_tab.dart';
 import '../widgets/exam_take_overview.dart';
+import '../widgets/reminder_button.dart';
 import '../widgets/transcript_tab.dart';
 
 class ExamWorkspace extends StatefulWidget {
@@ -20,120 +19,90 @@ class ExamWorkspace extends StatefulWidget {
 }
 
 class _ExamWorkspaceState extends State<ExamWorkspace> {
-  final _reminderMinutes = TextEditingController(text: '10');
-
   Exam get exam => widget.exam;
   VoidCallback get changed => widget.changed;
-
-  @override
-  void dispose() {
-    _reminderMinutes.dispose();
-    super.dispose();
-  }
-
-  Future<void> _scheduleReminder() async {
-    final minutes = int.tryParse(_reminderMinutes.text.trim());
-    if (minutes == null || minutes < 1) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Enter a whole number of minutes.')),
-      );
-      return;
-    }
-    await BackgroundAppService.instance.scheduleAndHide(
-      Duration(minutes: minutes),
-    );
-  }
 
   @override
   Widget build(BuildContext context) => DefaultTabController(
     length: 6,
     child: Scaffold(
-      appBar: AppBar(title: Text(exam.title)),
-      body: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 10),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: const TabBar(
-                    isScrollable: true,
-                    tabAlignment: TabAlignment.start,
-                    tabs: [
-                      Tab(
-                        icon: Icon(Icons.edit_outlined),
-                        text: 'Exam Details',
-                      ),
-                      Tab(
-                        icon: Icon(Icons.segment),
-                        text: 'Groups & Questions',
-                      ),
-                      Tab(
-                        icon: Icon(Icons.play_circle_outline),
-                        text: 'Practice',
-                      ),
-                      Tab(icon: Icon(Icons.insights_outlined), text: 'Results'),
-                      Tab(icon: Icon(Icons.history), text: 'History'),
-                      Tab(
-                        icon: Icon(Icons.subject_outlined),
-                        text: 'Transcript',
-                      ),
-                    ],
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  IconButton(
+                    onPressed: () => Navigator.maybePop(context),
+                    tooltip: 'Back to exams',
+                    icon: const Icon(Icons.arrow_back),
                   ),
-                ),
-                SizedBox(
-                  width: 96,
-                  child: TextField(
-                    controller: _reminderMinutes,
-                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                    keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(
-                      labelText: 'Minutes',
-                      isDense: true,
-                      border: OutlineInputBorder(),
+                  Expanded(
+                    child: const TabBar(
+                      isScrollable: true,
+                      tabAlignment: TabAlignment.start,
+                      tabs: [
+                        Tab(
+                          icon: Icon(Icons.edit_outlined),
+                          text: 'Exam Details',
+                        ),
+                        Tab(
+                          icon: Icon(Icons.segment),
+                          text: 'Groups & Questions',
+                        ),
+                        Tab(
+                          icon: Icon(Icons.play_circle_outline),
+                          text: 'Practice',
+                        ),
+                        Tab(
+                          icon: Icon(Icons.insights_outlined),
+                          text: 'Results',
+                        ),
+                        Tab(icon: Icon(Icons.history), text: 'History'),
+                        Tab(
+                          icon: Icon(Icons.subject_outlined),
+                          text: 'Transcript',
+                        ),
+                      ],
                     ),
                   ),
-                ),
-                const SizedBox(width: 8),
-                OutlinedButton.icon(
-                  onPressed: () => _scheduleReminder(),
-                  icon: const Icon(Icons.notifications_outlined),
-                  label: const Text('Notify me'),
-                ),
-                const SizedBox(width: 8),
-                OutlinedButton.icon(
-                  onPressed: () {
-                    exam.published = !exam.published;
-                    changed();
-                  },
-                  icon: Icon(
-                    exam.published
-                        ? Icons.unpublished_outlined
-                        : Icons.publish_outlined,
-                  ),
-                  label: Text(exam.published ? 'Unpublish' : 'Publish'),
-                ),
-              ],
-            ),
-
-            const SizedBox(height: 16),
-            Expanded(
-              child: TabBarView(
-                children: [
-                  ExamDetailsForm(exam: exam, onSaved: changed),
-                  ExamGroupsTab(exam: exam),
-                  _practice(context),
-                  _results(),
-                  _history(),
-                  TranscriptTab(
-                    examId: exam.id,
-                    audioSource: exam.audioName ?? exam.audioPath,
+                  const ReminderButton(),
+                  const SizedBox(width: 8),
+                  OutlinedButton.icon(
+                    onPressed: () {
+                      exam.published = !exam.published;
+                      changed();
+                    },
+                    icon: Icon(
+                      exam.published
+                          ? Icons.unpublished_outlined
+                          : Icons.publish_outlined,
+                    ),
+                    label: Text(exam.published ? 'Unpublish' : 'Publish'),
                   ),
                 ],
               ),
-            ),
-          ],
+
+              const SizedBox(height: 16),
+              Expanded(
+                child: TabBarView(
+                  children: [
+                    ExamDetailsForm(exam: exam, onSaved: changed),
+                    ExamGroupsTab(exam: exam),
+                    _practice(context),
+                    _results(),
+                    _history(),
+                    TranscriptTab(
+                      examId: exam.id,
+                      audioSource: exam.audioName ?? exam.audioPath,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     ),

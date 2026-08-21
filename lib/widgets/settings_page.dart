@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../services/reminder_settings_service.dart';
+
 class SettingsPage extends StatelessWidget {
   const SettingsPage({
     super.key,
@@ -94,13 +96,7 @@ class SettingsPage extends StatelessWidget {
           description: 'Download your Supabase records locally.',
           onPressed: onSyncToLocal,
         ),
-        const Card(
-          child: ListTile(
-            leading: Icon(Icons.notifications_outlined),
-            title: Text('Study reminders'),
-            subtitle: Text('Manage reminders in the desktop application.'),
-          ),
-        ),
+        const _StudyRemindersCard(),
       ],
     ),
   );
@@ -169,4 +165,92 @@ class SettingsPage extends StatelessWidget {
         '${value.month.toString().padLeft(2, '0')}/${value.year} '
         '$hour:$minute:$second';
   }
+}
+
+class _StudyRemindersCard extends StatefulWidget {
+  const _StudyRemindersCard();
+
+  @override
+  State<_StudyRemindersCard> createState() => _StudyRemindersCardState();
+}
+
+class _StudyRemindersCardState extends State<_StudyRemindersCard> {
+  final _minutes = TextEditingController();
+  bool _loading = true;
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final minutes = await ReminderSettingsService.instance.loadMinutes();
+    if (mounted) {
+      setState(() {
+        _minutes.text = '$minutes';
+        _loading = false;
+      });
+    }
+  }
+
+  Future<void> _save() async {
+    final minutes = int.tryParse(_minutes.text.trim());
+    if (minutes == null || minutes < 1) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Enter at least one minute.')),
+      );
+      return;
+    }
+    setState(() => _saving = true);
+    await ReminderSettingsService.instance.saveMinutes(minutes);
+    if (mounted) {
+      setState(() => _saving = false);
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Study reminder saved.')));
+    }
+  }
+
+  @override
+  void dispose() {
+    _minutes.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Card(
+    child: ListTile(
+      leading: const Icon(Icons.notifications_outlined),
+      title: const Text('Study reminders'),
+      subtitle: _loading
+          ? const Text('Loading reminder preference…')
+          : Text('Notify me after the configured study interval.'),
+      trailing: SizedBox(
+        width: 210,
+        child: Row(
+          children: [
+            Expanded(
+              child: TextField(
+                controller: _minutes,
+                enabled: !_loading && !_saving,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: 'Minutes',
+                  isDense: true,
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            FilledButton(
+              onPressed: _loading || _saving ? null : _save,
+              child: Text(_saving ? 'Saving' : 'Save'),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
 }
