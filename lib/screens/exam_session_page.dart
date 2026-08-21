@@ -1,11 +1,12 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 
 import '../models.dart';
 import '../services/local_database.dart';
+import '../services/range_audio_player.dart';
+import '../widgets/context_tag_dialog.dart';
 
 class ExamSessionPage extends StatefulWidget {
   const ExamSessionPage({
@@ -28,9 +29,14 @@ class ExamSessionPage extends StatefulWidget {
 }
 
 class _ExamSessionPageState extends State<ExamSessionPage> {
-  final _player = AudioPlayer();
+  late final _rangePlayer = RangeAudioPlayer(
+    onChanged: () {
+      if (mounted) setState(() {});
+    },
+  );
   final _answers = <String, String?>{};
   List<_SessionQuestion> _questions = [];
+  Map<String, Set<String>> _contextTags = {};
   DateTime? _startedAt;
   Timer? _timer;
   int? _activePart;
@@ -39,20 +45,18 @@ class _ExamSessionPageState extends State<ExamSessionPage> {
   bool _showResult = false;
   int _correct = 0;
   int _elapsed = 0;
-  String? _playingContext;
 
   @override
   void initState() {
     super.initState();
     _load();
-    _player.onPositionChanged.listen(_stopAtContextEnd);
   }
 
   Future<void> _load() async {
     final contexts = await LocalDatabase.instance.loadExamContexts(
       widget.exam.id,
     );
-    final tags = await LocalDatabase.instance.loadContextTags(widget.exam.id);
+    _contextTags = await LocalDatabase.instance.loadContextTags(widget.exam.id);
     final selectedParts = widget.parts.toSet();
     final selectedTags = widget.tags.toSet();
     _questions = [
@@ -62,7 +66,9 @@ class _ExamSessionPageState extends State<ExamSessionPage> {
                 selectedParts.contains(context.part)) &&
             (widget.realTest ||
                 selectedTags.isEmpty ||
-                selectedTags.intersection(tags[context.id] ?? {}).isNotEmpty))
+                selectedTags
+                    .intersection(_contextTags[context.id] ?? {})
+                    .isNotEmpty))
           for (final question in context.questions)
             if (widget.questionIds.isEmpty ||
                 widget.questionIds.contains(question.id))
@@ -89,18 +95,6 @@ class _ExamSessionPageState extends State<ExamSessionPage> {
     if (mounted) setState(() => _elapsed = elapsed);
   }
 
-  void _stopAtContextEnd(Duration position) {
-    final context = _questions
-        .where((item) => item.context.id == _playingContext)
-        .map((item) => item.context)
-        .firstOrNull;
-    if (context != null &&
-        position.inMilliseconds >= (context.audioEnd * 1000).round()) {
-      _player.pause();
-      if (mounted) setState(() => _playingContext = null);
-    }
-  }
-
   String? get _audioPath {
     final source = widget.exam.audioName ?? widget.exam.audioPath;
     if (source == null || source.isEmpty) return null;
@@ -115,16 +109,12 @@ class _ExamSessionPageState extends State<ExamSessionPage> {
   Future<void> _playContext(ExamContext context) async {
     final path = _audioPath;
     if (path == null || context.audioEnd <= context.audioStart) return;
-    if (_playingContext == context.id) {
-      await _player.pause();
-      if (mounted) setState(() => _playingContext = null);
-      return;
-    }
-    await _player.play(
-      DeviceFileSource(path),
-      position: Duration(milliseconds: (context.audioStart * 1000).round()),
+    await _rangePlayer.toggle(
+      id: context.id,
+      path: path,
+      startSeconds: context.audioStart,
+      endSeconds: context.audioEnd,
     );
-    if (mounted) setState(() => _playingContext = context.id);
   }
 
   Future<void> _submit() async {
@@ -149,6 +139,17 @@ class _ExamSessionPageState extends State<ExamSessionPage> {
       selectedParts: widget.parts,
       selectedTags: widget.tags,
       mode: widget.realTest ? 'real' : 'practice',
+      activeParts: _questions.map((item) => item.context.part).toSet().toList()
+        ..sort(),
+      activeQuestionTags:
+          _questions
+              .expand(
+                (item) => _contextTags[item.context.id] ?? const <String>{},
+              )
+              .toSet()
+              .toList()
+            ..sort(),
+      questionIds: _questions.map((item) => item.question.id).toList(),
       answers: [
         for (final item in _questions)
           (
@@ -171,7 +172,7 @@ class _ExamSessionPageState extends State<ExamSessionPage> {
   @override
   void dispose() {
     _timer?.cancel();
-    _player.dispose();
+    _rangePlayer.dispose();
     super.dispose();
   }
 
@@ -281,13 +282,23 @@ class _ExamSessionPageState extends State<ExamSessionPage> {
                   style: const TextStyle(fontWeight: FontWeight.bold),
                 ),
               ),
+              IconButton(
+                onPressed: () => _manageTags(context),
+                tooltip: (_contextTags[context.id]?.isEmpty ?? true)
+                    ? 'Manage tags for this context'
+                    : 'Tagged: ${_contextTags[context.id]!.join(', ')}',
+                color: _contextTags[context.id]?.isEmpty ?? true
+                    ? null
+                    : const Color(0xff1a73e8),
+                icon: const Icon(Icons.sell_outlined),
+              ),
               if (context.audioEnd > context.audioStart)
                 OutlinedButton.icon(
                   onPressed: _audioPath == null
                       ? null
                       : () => _playContext(context),
                   icon: Icon(
-                    _playingContext == context.id
+                    _rangePlayer.playingId == context.id
                         ? Icons.pause
                         : Icons.play_arrow,
                   ),
@@ -310,6 +321,16 @@ class _ExamSessionPageState extends State<ExamSessionPage> {
       ),
     ),
   );
+
+  Future<void> _manageTags(ExamContext context) async {
+    await showDialog<void>(
+      context: this.context,
+      builder: (_) =>
+          ContextTagDialog(examId: widget.exam.id, contextId: context.id),
+    );
+    final tags = await LocalDatabase.instance.loadContextTags(widget.exam.id);
+    if (mounted) setState(() => _contextTags = tags);
+  }
 
   Widget? _contextImage(ExamContext context) {
     final filename = context.imageFilename;

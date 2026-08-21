@@ -259,6 +259,9 @@ class LocalDatabase {
     required List<int> selectedParts,
     required List<String> selectedTags,
     required String mode,
+    required List<int> activeParts,
+    required List<String> activeQuestionTags,
+    required List<String> questionIds,
   }) async {
     final attemptId = newUuid();
     final now = DateTime.now().toUtc().toIso8601String();
@@ -277,9 +280,12 @@ class LocalDatabase {
         'dirty': 1,
         'additional_meta': jsonEncode({
           'mode': mode,
-          'selected_parts': selectedParts,
+          // An empty selection means "all parts". Persist the resolved parts so
+          // attempt history always states precisely what was practised.
+          'selected_parts': selectedParts.isEmpty ? activeParts : selectedParts,
           'selected_tags': selectedTags,
-          'question_tags': selectedTags,
+          'question_tags': activeQuestionTags,
+          'question_ids': questionIds,
         }),
       });
       for (final answer in answers) {

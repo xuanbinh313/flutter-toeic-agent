@@ -2,12 +2,13 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:audioplayers/audioplayers.dart';
 import 'package:desktop_multi_window/desktop_multi_window.dart';
 import 'package:flutter/material.dart';
 
 import '../models.dart';
 import '../services/local_database.dart';
+import '../services/range_audio_player.dart';
+import 'context_tag_dialog.dart';
 
 class ExamGroupsTab extends StatefulWidget {
   const ExamGroupsTab({super.key, required this.exam});
@@ -19,11 +20,15 @@ class ExamGroupsTab extends StatefulWidget {
 }
 
 class _ExamGroupsTabState extends State<ExamGroupsTab> {
-  final _player = AudioPlayer();
+  late final _rangePlayer = RangeAudioPlayer(
+    onChanged: () {
+      if (mounted) setState(() {});
+    },
+  );
   List<ExamContext> _contexts = [];
+  Map<String, Set<String>> _contextTags = {};
   int? _part;
   bool _loading = true;
-  String? _playingContext;
   StreamSubscription<void>? _windowsSubscription;
 
   @override
@@ -34,13 +39,21 @@ class _ExamGroupsTabState extends State<ExamGroupsTab> {
   }
 
   Future<void> _load() async {
-    final contexts = await LocalDatabase.instance.loadExamContexts(
-      widget.exam.id,
-    );
+    final values = await Future.wait([
+      LocalDatabase.instance.loadExamContexts(widget.exam.id),
+      LocalDatabase.instance.loadContextTags(widget.exam.id),
+    ]);
+    final contexts = values[0] as List<ExamContext>;
+    final parts = contexts.map((context) => context.part).toSet();
     if (mounted) {
       setState(() {
         _contexts = contexts;
-        _part = contexts.isEmpty ? null : contexts.first.part;
+        _contextTags = values[1] as Map<String, Set<String>>;
+        // Tag changes refresh the data but must not send the learner back to
+        // the first part tab.
+        _part = parts.contains(_part)
+            ? _part
+            : (contexts.isEmpty ? null : contexts.first.part);
         _loading = false;
       });
     }
@@ -79,22 +92,18 @@ class _ExamGroupsTabState extends State<ExamGroupsTab> {
   Future<void> _playContext(ExamContext context) async {
     final path = _audioPath;
     if (path == null || context.audioEnd <= context.audioStart) return;
-    if (_playingContext == context.id) {
-      await _player.pause();
-      if (mounted) setState(() => _playingContext = null);
-      return;
-    }
-    await _player.play(
-      DeviceFileSource(path),
-      position: Duration(milliseconds: (context.audioStart * 1000).round()),
+    await _rangePlayer.toggle(
+      id: context.id,
+      path: path,
+      startSeconds: context.audioStart,
+      endSeconds: context.audioEnd,
     );
-    if (mounted) setState(() => _playingContext = context.id);
   }
 
   @override
   void dispose() {
     _windowsSubscription?.cancel();
-    _player.dispose();
+    _rangePlayer.dispose();
     super.dispose();
   }
 
@@ -186,9 +195,16 @@ class _ExamGroupsTabState extends State<ExamGroupsTab> {
                 label: const Text('Delete'),
               ),
               TextButton.icon(
-                onPressed: () => _addTag(context),
+                onPressed: () => _manageTags(context),
                 icon: const Icon(Icons.sell_outlined),
-                label: const Text('Tag'),
+                label: Text(
+                  _contextTags[context.id]?.isEmpty ?? true ? 'Tag' : 'Tagged',
+                ),
+                style: TextButton.styleFrom(
+                  foregroundColor: _contextTags[context.id]?.isEmpty ?? true
+                      ? null
+                      : const Color(0xff1a73e8),
+                ),
               ),
             ],
           ),
@@ -232,7 +248,7 @@ class _ExamGroupsTabState extends State<ExamGroupsTab> {
                     ? null
                     : () => _playContext(context),
                 icon: Icon(
-                  _playingContext == context.id
+                  _rangePlayer.playingId == context.id
                       ? Icons.pause
                       : Icons.play_arrow,
                 ),
@@ -365,30 +381,13 @@ class _ExamGroupsTabState extends State<ExamGroupsTab> {
     if (save == true) await _load();
   }
 
-  Future<void> _addTag(ExamContext context) async {
-    final controller = TextEditingController();
-    final tag = await showDialog<String>(
+  Future<void> _manageTags(ExamContext context) async {
+    await showDialog<void>(
       context: this.context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Add context tag'),
-        content: TextField(controller: controller, autofocus: true),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () =>
-                Navigator.pop(dialogContext, controller.text.trim()),
-            child: const Text('Add'),
-          ),
-        ],
-      ),
+      builder: (_) =>
+          ContextTagDialog(examId: widget.exam.id, contextId: context.id),
     );
-    controller.dispose();
-    if (tag == null || tag.isEmpty) return;
-    await LocalDatabase.instance.setContextTag(context.id, tag, true);
-    if (mounted) setState(() {});
+    if (mounted) await _load();
   }
 
   Widget _question(ExamQuestion question) => Padding(

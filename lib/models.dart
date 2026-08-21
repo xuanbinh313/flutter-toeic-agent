@@ -128,6 +128,7 @@ class AttemptSummary {
     required this.totalQuestions,
     required this.selectedParts,
     required this.questionTags,
+    required this.mode,
   });
 
   final String id;
@@ -137,6 +138,60 @@ class AttemptSummary {
   final int totalQuestions;
   final List<int> selectedParts;
   final List<String> questionTags;
+  final String mode;
   double get accuracy =>
       totalQuestions == 0 ? 0 : totalCorrect * 100 / totalQuestions;
+}
+
+class AttemptAnswerDetail {
+  const AttemptAnswerDetail({
+    required this.questionId,
+    required this.contextId,
+    required this.questionNumber,
+    required this.part,
+    required this.category,
+    required this.content,
+    required this.contextText,
+    required this.contextNote,
+    required this.questionNote,
+    required this.tags,
+    required this.options,
+    required this.userChoice,
+    required this.correctAnswer,
+    required this.isCorrect,
+  });
+
+  final String questionId;
+  final String contextId;
+  final int questionNumber;
+  final int part;
+  final String category;
+  final String content;
+  final String contextText;
+  final String contextNote;
+  final String questionNote;
+  final List<String> tags;
+  final List<String> options;
+  final String? userChoice;
+  final String correctAnswer;
+  final bool isCorrect;
+
+  bool get isSkipped => userChoice == null;
+  String optionText(String? letter) {
+    final index = letter == null || letter.isEmpty
+        ? -1
+        : letter.codeUnitAt(0) - 65;
+    return index >= 0 && index < options.length ? options[index] : '';
+  }
+}
+
+class AttemptCategoryBreakdown {
+  const AttemptCategoryBreakdown(this.name, this.answers);
+
+  final String name;
+  final List<AttemptAnswerDetail> answers;
+  int get correct => answers.where((answer) => answer.isCorrect).length;
+  int get skipped => answers.where((answer) => answer.isSkipped).length;
+  int get wrong => answers.length - correct - skipped;
+  double get accuracy => answers.isEmpty ? 0 : correct * 100 / answers.length;
 }

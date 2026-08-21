@@ -27,22 +27,58 @@ class ExamSummaryService {
       whereArgs: [examId],
       orderBy: 'created_at DESC',
     );
-    return rows.map((row) {
-      final meta = _map(row['additional_meta']);
-      return AttemptSummary(
-        id: row['id'] as String,
-        createdAt: row['created_at'] as String? ?? '',
-        durationSeconds: (row['duration_seconds'] as num?)?.toInt() ?? 0,
-        totalCorrect: (row['total_correct'] as num?)?.toInt() ?? 0,
-        totalQuestions: (row['total_questions'] as num?)?.toInt() ?? 0,
-        selectedParts: _list(
+    return Future.wait(
+      rows.map((row) async {
+        final meta = _map(row['additional_meta']);
+        var selectedParts = _list(
           meta['selected_parts'],
-        ).map((item) => int.tryParse('$item')).whereType<int>().toList(),
-        questionTags: _list(
+        ).map((item) => int.tryParse('$item')).whereType<int>().toList();
+        var questionTags = _list(
           meta['question_tags'],
-        ).map((item) => '$item').toList(),
-      );
-    }).toList();
+        ).map((item) => '$item').toList();
+        if (selectedParts.isEmpty || questionTags.isEmpty) {
+          final derived = await _derivedFilters(row['id'] as String);
+          if (selectedParts.isEmpty) selectedParts = derived.$1;
+          if (questionTags.isEmpty) questionTags = derived.$2;
+        }
+        return AttemptSummary(
+          id: row['id'] as String,
+          createdAt: row['created_at'] as String? ?? '',
+          durationSeconds: (row['duration_seconds'] as num?)?.toInt() ?? 0,
+          totalCorrect: (row['total_correct'] as num?)?.toInt() ?? 0,
+          totalQuestions: (row['total_questions'] as num?)?.toInt() ?? 0,
+          selectedParts: selectedParts,
+          questionTags: questionTags,
+          mode: meta['mode'] as String? ?? 'practice',
+        );
+      }),
+    );
+  }
+
+  Future<(List<int>, List<String>)> _derivedFilters(String attemptId) async {
+    final rows = await (await LocalDatabase.instance.database).rawQuery(
+      '''SELECT DISTINCT c.part, t.tag_name
+         FROM user_answers a JOIN exam_questions q ON q.id = a.question_id
+         JOIN exam_contexts c ON c.id = q.context_id
+         LEFT JOIN user_question_tags t ON t.context_id = c.id
+         WHERE a.attempt_id = ?''',
+      [attemptId],
+    );
+    final parts =
+        rows
+            .map((row) => (row['part'] as num?)?.toInt())
+            .whereType<int>()
+            .toSet()
+            .toList()
+          ..sort();
+    final tags =
+        rows
+            .map((row) => row['tag_name'] as String?)
+            .whereType<String>()
+            .toSet()
+            .toList()
+          ..sort();
+    return (parts, tags);
   }
 
   Map<String, dynamic> _map(Object? value) {

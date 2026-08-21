@@ -46,7 +46,7 @@ class _ExamWorkspaceState extends State<ExamWorkspace> {
 
   @override
   Widget build(BuildContext context) => DefaultTabController(
-    length: 7,
+    length: 6,
     child: Scaffold(
       appBar: AppBar(title: Text(exam.title)),
       body: Padding(
@@ -78,10 +78,6 @@ class _ExamWorkspaceState extends State<ExamWorkspace> {
                       Tab(
                         icon: Icon(Icons.subject_outlined),
                         text: 'Transcript',
-                      ),
-                      Tab(
-                        icon: Icon(Icons.record_voice_over_outlined),
-                        text: 'Dictation',
                       ),
                     ],
                   ),
@@ -134,7 +130,6 @@ class _ExamWorkspaceState extends State<ExamWorkspace> {
                     examId: exam.id,
                     audioSource: exam.audioName ?? exam.audioPath,
                   ),
-                  _dictation(),
                 ],
               ),
             ),
@@ -250,6 +245,8 @@ class _ExamWorkspaceState extends State<ExamWorkspace> {
         ),
       ),
     ),
+    onRetakeQuestions: (questionIds) =>
+        _quiz(context, false, questionIds: questionIds),
   );
   Widget _results() => ListView(
     children: [
@@ -306,10 +303,6 @@ class _ExamWorkspaceState extends State<ExamWorkspace> {
       ),
     ],
   );
-  Widget _dictation() => DictationPractice(
-    examId: exam.id,
-    audioName: exam.audioName ?? exam.audioPath,
-  );
   Widget _start(BuildContext context, bool timed) => timed
       ? OutlinedButton.icon(
           onPressed: () => _quiz(context, true),
@@ -340,6 +333,7 @@ class _ExamWorkspaceState extends State<ExamWorkspace> {
     bool timed, {
     List<int> parts = const [],
     List<String> tags = const [],
+    List<String> questionIds = const [],
   }) => Navigator.push(
     context,
     MaterialPageRoute(
@@ -348,6 +342,7 @@ class _ExamWorkspaceState extends State<ExamWorkspace> {
         realTest: timed,
         parts: parts,
         tags: tags,
+        questionIds: questionIds,
       ),
     ),
   );

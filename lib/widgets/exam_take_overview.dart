@@ -1,11 +1,9 @@
-import 'dart:convert';
-
 import 'package:flutter/material.dart';
 
 import '../models.dart';
-import '../services/attempt_detail_service.dart';
 import '../services/exam_summary_service.dart';
 import '../services/local_database.dart';
+import 'attempt_analytics_dialog.dart';
 
 class ExamTakeOverview extends StatefulWidget {
   const ExamTakeOverview({
@@ -14,13 +12,13 @@ class ExamTakeOverview extends StatefulWidget {
     required this.onStartPractice,
     required this.onStartReal,
     required this.onStartDictation,
+    required this.onRetakeQuestions,
   });
-
   final Exam exam;
   final void Function(List<int> parts, List<String> tags) onStartPractice;
   final VoidCallback onStartReal;
   final VoidCallback onStartDictation;
-
+  final ValueChanged<List<String>> onRetakeQuestions;
   @override
   State<ExamTakeOverview> createState() => _ExamTakeOverviewState();
 }
@@ -47,24 +45,23 @@ class _ExamTakeOverviewState extends State<ExamTakeOverview> {
       ExamSummaryService.instance.loadAttempts(widget.exam.id),
       LocalDatabase.instance.loadSrtChunks(widget.exam.id),
     ]);
-    if (mounted) {
-      setState(() {
-        _contexts = results[0] as List<ExamContext>;
-        _tags = results[1] as List<String>;
-        _attempts = results[2] as List<AttemptSummary>;
-        _chunks = results[3] as List<SrtChunk>;
-        _loading = false;
-      });
-    }
+    if (!mounted) return;
+    setState(() {
+      _contexts = results[0] as List<ExamContext>;
+      _tags = results[1] as List<String>;
+      _attempts = results[2] as List<AttemptSummary>;
+      _chunks = results[3] as List<SrtChunk>;
+      _loading = false;
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     if (_loading) return const Center(child: CircularProgressIndicator());
     final parts = _contexts.map((item) => item.part).toSet().toList()..sort();
-    final questionCount = _contexts.fold(
+    final count = _contexts.fold(
       0,
-      (count, context) => count + context.questions.length,
+      (total, item) => total + item.questions.length,
     );
     return ListView(
       children: [
@@ -73,7 +70,7 @@ class _ExamTakeOverviewState extends State<ExamTakeOverview> {
           style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w700),
         ),
         Text(
-          '${widget.exam.duration} min | ${parts.length} parts | $questionCount questions',
+          '${widget.exam.duration} min | ${parts.length} parts | $count questions',
           style: const TextStyle(color: Color(0xff5f6368)),
         ),
         if (widget.exam.description.isNotEmpty)
@@ -98,11 +95,7 @@ class _ExamTakeOverviewState extends State<ExamTakeOverview> {
               SizedBox(
                 height: 230,
                 child: TabBarView(
-                  children: [
-                    _practice(parts),
-                    _realTest(questionCount),
-                    _dictation(),
-                  ],
+                  children: [_practice(parts), _realTest(count), _dictation()],
                 ),
               ),
             ],
@@ -135,6 +128,7 @@ class _ExamTakeOverviewState extends State<ExamTakeOverview> {
               child: DataTable(
                 columns: const [
                   DataColumn(label: Text('Date')),
+                  DataColumn(label: Text('Mode')),
                   DataColumn(label: Text('Duration')),
                   DataColumn(label: Text('Score')),
                   DataColumn(label: Text('Accuracy')),
@@ -147,6 +141,11 @@ class _ExamTakeOverviewState extends State<ExamTakeOverview> {
                       (attempt) => DataRow(
                         cells: [
                           DataCell(Text(attempt.createdAt)),
+                          DataCell(
+                            Text(
+                              attempt.mode == 'real' ? 'Real Test' : 'Practice',
+                            ),
+                          ),
                           DataCell(Text(_duration(attempt.durationSeconds))),
                           DataCell(
                             Text(
@@ -175,7 +174,7 @@ class _ExamTakeOverviewState extends State<ExamTakeOverview> {
                           DataCell(
                             IconButton(
                               icon: const Icon(Icons.visibility),
-                              tooltip: 'View attempt summary',
+                              tooltip: 'View attempt analytics',
                               onPressed: () => _viewAttempt(attempt),
                             ),
                           ),
@@ -251,14 +250,12 @@ class _ExamTakeOverviewState extends State<ExamTakeOverview> {
     ),
   );
 
-  Widget _realTest(int questions) => Padding(
+  Widget _realTest(int count) => Padding(
     padding: const EdgeInsets.only(top: 12),
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          'Full exam: $questions questions, ${widget.exam.duration} minutes.',
-        ),
+        Text('Full exam: $count questions, ${widget.exam.duration} minutes.'),
         const Spacer(),
         FilledButton.icon(
           onPressed: widget.onStartReal,
@@ -268,9 +265,8 @@ class _ExamTakeOverviewState extends State<ExamTakeOverview> {
       ],
     ),
   );
-
   Widget _dictation() {
-    final audioReady =
+    final ready =
         (widget.exam.audioName ?? widget.exam.audioPath ?? '').isNotEmpty;
     return Padding(
       padding: const EdgeInsets.only(top: 12),
@@ -291,7 +287,7 @@ class _ExamTakeOverviewState extends State<ExamTakeOverview> {
                 ),
               ),
             ),
-          if (!audioReady)
+          if (!ready)
             const Padding(
               padding: EdgeInsets.only(top: 8),
               child: Text(
@@ -304,7 +300,7 @@ class _ExamTakeOverviewState extends State<ExamTakeOverview> {
             ),
           const Spacer(),
           FilledButton.icon(
-            onPressed: _chunks.isNotEmpty && audioReady
+            onPressed: _chunks.isNotEmpty && ready
                 ? widget.onStartDictation
                 : null,
             icon: const Icon(Icons.headphones),
@@ -315,131 +311,13 @@ class _ExamTakeOverviewState extends State<ExamTakeOverview> {
     );
   }
 
-  Future<void> _viewAttempt(AttemptSummary attempt) async {
-    final rows = await AttemptDetailService.instance.loadAnswers(attempt.id);
-    if (!mounted) return;
-    await showDialog<void>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Attempt Analytics'),
-        content: SizedBox(
-          width: 760,
-          height: 520,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Results: ${attempt.totalCorrect}/${attempt.totalQuestions}  •  Accuracy: ${attempt.accuracy.toStringAsFixed(1)}%  •  Time: ${_duration(attempt.durationSeconds)}',
-              ),
-              const SizedBox(height: 10),
-              Expanded(
-                child: ListView(
-                  children: [for (final row in rows) _answerDetail(row)],
-                ),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Close'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _answerDetail(Map<String, Object?> row) {
-    final correct = (row['is_correct'] as num?)?.toInt() == 1;
-    final options = _options(row['options']);
-    final answer = row['user_choice'] as String?;
-    final key = row['correct_answer'] as String? ?? '';
-    final context = _contentText(row['context_content']);
-    final contextNote = _note(row['context_meta']);
-    final questionNote = _note(row['question_meta']);
-    String optionText(String letter) {
-      final index = letter.isEmpty ? -1 : letter.codeUnitAt(0) - 65;
-      return index >= 0 && index < options.length ? options[index] : '';
-    }
-
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(10),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Q${row['question_number']}: ${correct
-                  ? 'Correct'
-                  : answer == null
-                  ? 'Skipped'
-                  : 'Wrong'}',
-              style: TextStyle(
-                fontWeight: FontWeight.bold,
-                color: correct
-                    ? Colors.green
-                    : answer == null
-                    ? Colors.grey
-                    : Colors.red,
-              ),
-            ),
-            if (context.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.only(top: 5),
-                child: Text(context),
-              ),
-            Padding(
-              padding: const EdgeInsets.only(top: 5),
-              child: Text('${row['content']}'),
-            ),
-            Text(
-              'Your answer: ${answer ?? 'not answered'} ${optionText(answer ?? '')}\nCorrect answer: $key ${optionText(key)}',
-            ),
-            if (contextNote.isNotEmpty)
-              Text(
-                'Context note: $contextNote',
-                style: const TextStyle(color: Color(0xff52616b)),
-              ),
-            if (questionNote.isNotEmpty)
-              Text(
-                'Question note: $questionNote',
-                style: const TextStyle(color: Color(0xff174ea6)),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  List<dynamic> _options(Object? value) {
-    try {
-      return value is String && jsonDecode(value) is List
-          ? jsonDecode(value) as List
-          : [];
-    } catch (_) {
-      return [];
-    }
-  }
-
-  String _contentText(Object? value) {
-    try {
-      final map = value is String ? jsonDecode(value) : value;
-      return map is Map ? '${map['text'] ?? ''}' : '';
-    } catch (_) {
-      return '';
-    }
-  }
-
-  String _note(Object? value) {
-    try {
-      final map = value is String ? jsonDecode(value) : value;
-      return map is Map ? '${map['note'] ?? ''}' : '';
-    } catch (_) {
-      return '';
-    }
-  }
-
+  Future<void> _viewAttempt(AttemptSummary attempt) => showDialog<void>(
+    context: context,
+    builder: (_) => AttemptAnalyticsDialog(
+      attempt: attempt,
+      onRetake: widget.onRetakeQuestions,
+    ),
+  );
   String _duration(int seconds) =>
       '${(seconds ~/ 60).toString().padLeft(2, '0')}:${(seconds % 60).toString().padLeft(2, '0')}';
 }
