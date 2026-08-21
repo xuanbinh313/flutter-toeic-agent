@@ -203,12 +203,14 @@ class _ExamWorkspaceState extends State<ExamWorkspace> {
       context,
       MaterialPageRoute(
         builder: (_) => Scaffold(
-          appBar: AppBar(title: const Text('Dictation')),
-          body: Padding(
-            padding: const EdgeInsets.all(24),
-            child: DictationPractice(
-              examId: exam.id,
-              audioName: exam.audioName ?? exam.audioPath,
+          body: SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: DictationPractice(
+                examId: exam.id,
+                audioName: exam.audioName ?? exam.audioPath,
+                showBackButton: true,
+              ),
             ),
           ),
         ),

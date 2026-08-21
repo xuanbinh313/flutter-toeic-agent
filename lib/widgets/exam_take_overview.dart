@@ -196,6 +196,7 @@ class _ExamTakeOverviewState extends State<ExamTakeOverview> {
       children: [
         const Text('Parts', style: TextStyle(fontWeight: FontWeight.bold)),
         Wrap(
+          spacing: 5,
           children: [
             for (final part in parts)
               FilterChip(
@@ -224,6 +225,7 @@ class _ExamTakeOverviewState extends State<ExamTakeOverview> {
           )
         else
           Wrap(
+            spacing: 5,
             children: [
               for (final tag in _tags)
                 FilterChip(

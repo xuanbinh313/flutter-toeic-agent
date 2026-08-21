@@ -6,16 +6,19 @@ import 'package:flutter/services.dart';
 
 import '../models.dart';
 import '../services/local_database.dart';
+import 'dictation_text_zoom.dart';
 
 class DictationPractice extends StatefulWidget {
   const DictationPractice({
     super.key,
     required this.examId,
     required this.audioName,
+    this.showBackButton = false,
   });
 
   final String examId;
   final String? audioName;
+  final bool showBackButton;
 
   @override
   State<DictationPractice> createState() => _DictationPracticeState();
@@ -177,96 +180,105 @@ class _DictationPracticeState extends State<DictationPractice> {
     _jumpController.text = _jumpController.text.isEmpty
         ? '${_currentIndex + 1}'
         : _jumpController.text;
-    return ListView(
-      children: [
-        _header(),
-        const SizedBox(height: 12),
-        Text(
-          'Chunk ${chunk.index}: ${_time(chunk.start)} – ${_time(chunk.end)}',
-          style: const TextStyle(color: Color(0xff5f6368)),
-        ),
-        const SizedBox(height: 10),
-        FilledButton.icon(
-          onPressed: _audioPath == null ? null : _play,
-          icon: Icon(_playing ? Icons.pause : Icons.play_arrow),
-          label: Text(_playing ? 'Pause' : 'Play'),
-        ),
-        if (_audioPath == null)
-          const Padding(
-            padding: EdgeInsets.only(top: 8),
-            child: Text(
-              'No local audio is available for this exam.',
-              style: TextStyle(color: Color(0xffa15c00)),
+    return DictationTextZoom(
+      builder: (context, zoomControls) => ListView(
+        children: [
+          _header(zoomControls),
+          const SizedBox(height: 12),
+          Text(
+            'Chunk ${chunk.index}: ${_time(chunk.start)} – ${_time(chunk.end)}',
+            style: const TextStyle(color: Color(0xff5f6368)),
+          ),
+          const SizedBox(height: 10),
+          FilledButton.icon(
+            onPressed: _audioPath == null ? null : _play,
+            icon: Icon(_playing ? Icons.pause : Icons.play_arrow),
+            label: Text(_playing ? 'Pause' : 'Play'),
+          ),
+          if (_audioPath == null)
+            const Padding(
+              padding: EdgeInsets.only(top: 8),
+              child: Text(
+                'No local audio is available for this exam.',
+                style: TextStyle(color: Color(0xffa15c00)),
+              ),
+            ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 16,
+            children: [
+              _option(
+                'Show answer immediately',
+                _showImmediately,
+                _setShowImmediately,
+              ),
+              _option(
+                'Show full answer',
+                _showFullAnswer,
+                (value) => setState(() => _showFullAnswer = value),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          const Text(
+            'Type what you hear',
+            style: TextStyle(fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 6),
+          Focus(
+            focusNode: _answerFocus,
+            onKeyEvent: (_, event) {
+              if (event is KeyDownEvent &&
+                  event.logicalKey == LogicalKeyboardKey.enter &&
+                  !HardwareKeyboard.instance.isShiftPressed &&
+                  !HardwareKeyboard.instance.isControlPressed &&
+                  !HardwareKeyboard.instance.isAltPressed) {
+                _checkAnswer();
+                return KeyEventResult.handled;
+              }
+              return KeyEventResult.ignored;
+            },
+            child: TextField(
+              controller: _answerController,
+              minLines: 5,
+              maxLines: 5,
+              enabled: true,
+              decoration: const InputDecoration(
+                border: OutlineInputBorder(),
+                hintText: 'Press Enter to check. Shift+Enter adds a new line.',
+              ),
             ),
           ),
-        const SizedBox(height: 8),
-        Wrap(
-          spacing: 16,
-          children: [
-            _option(
-              'Show answer immediately',
-              _showImmediately,
-              _setShowImmediately,
-            ),
-            _option(
-              'Show full answer',
-              _showFullAnswer,
-              (value) => setState(() => _showFullAnswer = value),
-            ),
-          ],
-        ),
-        const SizedBox(height: 14),
-        const Text(
-          'Type what you hear',
-          style: TextStyle(fontWeight: FontWeight.bold),
-        ),
-        const SizedBox(height: 6),
-        Focus(
-          focusNode: _answerFocus,
-          onKeyEvent: (_, event) {
-            if (event is KeyDownEvent &&
-                event.logicalKey == LogicalKeyboardKey.enter &&
-                !HardwareKeyboard.instance.isShiftPressed &&
-                !HardwareKeyboard.instance.isControlPressed &&
-                !HardwareKeyboard.instance.isAltPressed) {
-              _checkAnswer();
-              return KeyEventResult.handled;
-            }
-            return KeyEventResult.ignored;
-          },
-          child: TextField(
-            controller: _answerController,
-            minLines: 5,
-            maxLines: 5,
-            enabled: true,
-            decoration: const InputDecoration(
-              border: OutlineInputBorder(),
-              hintText: 'Press Enter to check. Shift+Enter adds a new line.',
-            ),
-          ),
-        ),
-        const SizedBox(height: 8),
-        if (_checked) _typedAnswer(),
-        if (_checked) _status(),
-        if (_checked) _revealButtons(),
-        if (_translationRevealed) _translation(),
-        if (_answerRevealed) _answerDiff(),
-      ],
+          const SizedBox(height: 8),
+          if (_checked) _typedAnswer(),
+          if (_checked) _status(),
+          if (_checked) _revealButtons(),
+          if (_translationRevealed) _translation(),
+          if (_answerRevealed) _answerDiff(),
+        ],
+      ),
     );
   }
 
-  Widget _header() => Card(
+  Widget _header(Widget zoomControls) => Card(
     elevation: 0,
     child: Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       child: Row(
         children: [
+          if (widget.showBackButton)
+            IconButton(
+              onPressed: () => Navigator.maybePop(context),
+              tooltip: 'Back to exam',
+              icon: const Icon(Icons.arrow_back),
+            ),
           const Expanded(
             child: Text(
               'Dictation',
               style: TextStyle(fontWeight: FontWeight.bold),
             ),
           ),
+          zoomControls,
           IconButton(
             tooltip: 'Previous transcript',
             onPressed: _currentIndex == 0
