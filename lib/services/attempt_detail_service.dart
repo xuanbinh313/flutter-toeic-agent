@@ -11,7 +11,8 @@ class AttemptDetailService {
   Future<List<AttemptAnswerDetail>> loadAnswers(String attemptId) async {
     final rows = await (await LocalDatabase.instance.database).rawQuery(
       '''
-      SELECT a.question_id, a.user_choice, a.is_correct, q.question_number, q.content,
+      SELECT a.question_id, a.user_choice, a.is_correct, q.question_number,
+             q.content AS question_content,
              q.options, q.correct_answer, q.question_type, c.part,
              c.id AS context_id, c.content AS context_content,
              c.additional_meta AS context_meta, q.additional_meta AS question_meta,
@@ -36,7 +37,7 @@ class AttemptDetailService {
         category: (row['question_type'] as String?)?.trim().isNotEmpty == true
             ? row['question_type'] as String
             : 'Question',
-        content: row['content'] as String? ?? '',
+        content: row['question_content'] as String? ?? '',
         contextText: _text(row['context_content']),
         contextNote: _note(row['context_meta']),
         questionNote: _note(row['question_meta']),
@@ -51,12 +52,25 @@ class AttemptDetailService {
       );
 
   List<String> _options(Object? value) {
-    try {
-      final decoded = value is String ? jsonDecode(value) : value;
-      return decoded is List ? decoded.map((option) => '$option').toList() : [];
-    } on FormatException {
-      return [];
+    var decoded = value;
+    // Imported Jun Edu data may encode this JSON column more than once.
+    for (var attempt = 0; attempt < 3; attempt++) {
+      if (decoded is List) {
+        return decoded.map((option) => '$option').toList();
+      }
+      if (decoded is Map) {
+        final entries = decoded.entries.toList()
+          ..sort((a, b) => '${a.key}'.compareTo('${b.key}'));
+        return entries.map((entry) => '${entry.value}').toList();
+      }
+      if (decoded is! String) return [];
+      try {
+        decoded = jsonDecode(decoded);
+      } on FormatException {
+        return [];
+      }
     }
+    return [];
   }
 
   String _text(Object? value) {

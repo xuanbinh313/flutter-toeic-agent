@@ -190,7 +190,7 @@ class _ExamTakeOverviewState extends State<ExamTakeOverview> {
   );
 
   Widget _practice(List<int> parts) => Padding(
-    padding: const EdgeInsets.only(top: 12),
+    padding: const EdgeInsets.symmetric(vertical: 10),
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [

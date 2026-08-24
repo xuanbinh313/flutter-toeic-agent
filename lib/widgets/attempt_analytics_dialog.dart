@@ -21,6 +21,15 @@ class _AttemptAnalyticsDialogState extends State<AttemptAnalyticsDialog> {
   late final Future<List<AttemptAnswerDetail>> _answers = AttemptDetailService
       .instance
       .loadAnswers(widget.attempt.id);
+  List<AttemptAnswerDetail>? _loadedAnswers;
+
+  @override
+  void initState() {
+    super.initState();
+    _answers.then((answers) {
+      if (mounted) setState(() => _loadedAnswers = answers);
+    });
+  }
 
   @override
   Widget build(BuildContext context) => AlertDialog(
@@ -43,6 +52,13 @@ class _AttemptAnalyticsDialogState extends State<AttemptAnalyticsDialog> {
       ),
     ),
     actions: [
+      FilledButton.icon(
+        onPressed: _loadedAnswers == null
+            ? null
+            : () => _retake(_loadedAnswers!),
+        icon: const Icon(Icons.redo),
+        label: const Text('Retake Wrong Answers'),
+      ),
       TextButton(
         onPressed: () => Navigator.pop(context),
         child: const Text('Close'),
@@ -79,53 +95,50 @@ class _AttemptAnalyticsDialogState extends State<AttemptAnalyticsDialog> {
           ],
         ),
         const SizedBox(height: 12),
-        DefaultTabController(
-          length: parts.length + 1,
-          child: Expanded(
-            child: Column(
-              children: [
-                TabBar(
-                  isScrollable: true,
-                  tabs: [
-                    const Tab(text: 'Overall'),
-                    for (final part in parts) Tab(text: 'Part $part'),
-                  ],
-                ),
-                Expanded(
-                  child: TabBarView(
-                    children: [
-                      _breakdown(answers),
-                      for (final part in parts)
-                        _breakdown(
-                          answers
-                              .where((answer) => answer.part == part)
-                              .toList(),
-                        ),
+        Expanded(
+          child: DefaultTabController(
+            length: parts.length + 1,
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  TabBar(
+                    isScrollable: true,
+                    tabs: [
+                      const Tab(text: 'Overall'),
+                      for (final part in parts) Tab(text: 'Part $part'),
                     ],
                   ),
-                ),
-              ],
+                  SizedBox(
+                    height: 260,
+                    child: TabBarView(
+                      children: [
+                        _breakdown(answers),
+                        for (final part in parts)
+                          _breakdown(
+                            answers
+                                .where((answer) => answer.part == part)
+                                .toList(),
+                          ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Answer Sheet',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 4),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: [
+                      for (final answer in answers) _answerTile(answer),
+                    ],
+                  ),
+                ],
+              ),
             ),
-          ),
-        ),
-        const SizedBox(height: 10),
-        const Text(
-          'Answer Sheet',
-          style: TextStyle(fontWeight: FontWeight.bold),
-        ),
-        const SizedBox(height: 6),
-        Wrap(
-          spacing: 6,
-          runSpacing: 6,
-          children: [for (final answer in answers) _answerTile(answer)],
-        ),
-        const SizedBox(height: 8),
-        Align(
-          alignment: Alignment.centerLeft,
-          child: FilledButton.icon(
-            onPressed: () => _retake(answers),
-            icon: const Icon(Icons.redo),
-            label: const Text('Retake Wrong Answers'),
           ),
         ),
       ],
@@ -234,6 +247,19 @@ class _AttemptAnalyticsDialogState extends State<AttemptAnalyticsDialog> {
               if (answer.contextNote.isNotEmpty)
                 _section('Context note', answer.contextNote),
               _section('Question', answer.content),
+              _section(
+                'Options',
+                answer.options.isEmpty
+                    ? 'No options saved.'
+                    : answer.options
+                          .asMap()
+                          .entries
+                          .map(
+                            (entry) =>
+                                '${String.fromCharCode(65 + entry.key)}. ${entry.value}',
+                          )
+                          .join('\n'),
+              ),
               if (answer.questionNote.isNotEmpty)
                 _section('Question note', answer.questionNote),
               _section(
