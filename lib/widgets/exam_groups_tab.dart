@@ -11,9 +11,16 @@ import '../services/range_audio_player.dart';
 import 'context_tag_dialog.dart';
 
 class ExamGroupsTab extends StatefulWidget {
-  const ExamGroupsTab({super.key, required this.exam});
+  const ExamGroupsTab({
+    super.key,
+    required this.exam,
+    this.questionIds = const [],
+    this.onClearQuestionFilter,
+  });
 
   final Exam exam;
+  final List<String> questionIds;
+  final VoidCallback? onClearQuestionFilter;
 
   @override
   State<ExamGroupsTab> createState() => _ExamGroupsTabState();
@@ -31,6 +38,19 @@ class _ExamGroupsTabState extends State<ExamGroupsTab> {
   bool _loading = true;
   StreamSubscription<void>? _windowsSubscription;
 
+  bool _matchesReview(ExamContext context) =>
+      widget.questionIds.isEmpty ||
+      context.questions.any(
+        (question) => widget.questionIds.contains(question.id),
+      );
+
+  Iterable<ExamQuestion> _visibleQuestions(ExamContext context) =>
+      context.questions.where(
+        (question) =>
+            widget.questionIds.isEmpty ||
+            widget.questionIds.contains(question.id),
+      );
+
   @override
   void initState() {
     super.initState();
@@ -44,7 +64,10 @@ class _ExamGroupsTabState extends State<ExamGroupsTab> {
       LocalDatabase.instance.loadContextTags(widget.exam.id),
     ]);
     final contexts = values[0] as List<ExamContext>;
-    final parts = contexts.map((context) => context.part).toSet();
+    final parts = contexts
+        .where(_matchesReview)
+        .map((context) => context.part)
+        .toSet();
     if (mounted) {
       setState(() {
         _contexts = contexts;
@@ -100,6 +123,11 @@ class _ExamGroupsTabState extends State<ExamGroupsTab> {
     );
   }
 
+  Future<void> _refresh() async {
+    widget.onClearQuestionFilter?.call();
+    await _load();
+  }
+
   @override
   void dispose() {
     _windowsSubscription?.cancel();
@@ -110,8 +138,15 @@ class _ExamGroupsTabState extends State<ExamGroupsTab> {
   @override
   Widget build(BuildContext context) {
     if (_loading) return const Center(child: CircularProgressIndicator());
-    final parts = _contexts.map((item) => item.part).toSet().toList()..sort();
-    final contexts = _contexts.where((item) => item.part == _part).toList();
+    final reviewContexts = _contexts.where(_matchesReview).toList();
+    final parts = reviewContexts.map((item) => item.part).toSet().toList()
+      ..sort();
+    final activePart = parts.contains(_part)
+        ? _part
+        : (parts.isEmpty ? null : parts.first);
+    final contexts = reviewContexts
+        .where((item) => item.part == activePart)
+        .toList();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -133,7 +168,7 @@ class _ExamGroupsTabState extends State<ExamGroupsTab> {
               icon: const Icon(Icons.add),
             ),
             IconButton(
-              onPressed: _load,
+              onPressed: _refresh,
               tooltip: 'Refresh',
               icon: const Icon(Icons.refresh),
             ),
@@ -147,12 +182,20 @@ class _ExamGroupsTabState extends State<ExamGroupsTab> {
               for (final part in parts)
                 ChoiceChip(
                   label: Text('Part $part'),
-                  selected: part == _part,
+                  selected: part == activePart,
                   onSelected: (_) => setState(() => _part = part),
                 ),
             ],
           ),
         ],
+        if (widget.questionIds.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Text(
+              'Review filter: ${widget.questionIds.length} wrong or skipped question(s)',
+              style: const TextStyle(color: Color(0xff1a73e8)),
+            ),
+          ),
         const SizedBox(height: 8),
         Expanded(
           child: contexts.isEmpty
@@ -209,9 +252,9 @@ class _ExamGroupsTabState extends State<ExamGroupsTab> {
             ],
           ),
           Text(
-            context.questions.isEmpty
+            _visibleQuestions(context).isEmpty
                 ? 'No questions'
-                : 'Questions ${context.questions.map((item) => item.number).join(', ')}',
+                : 'Questions ${_visibleQuestions(context).map((item) => item.number).join(', ')}',
             style: const TextStyle(color: Color(0xff52616b)),
           ),
           const SizedBox(height: 10),
@@ -257,7 +300,8 @@ class _ExamGroupsTabState extends State<ExamGroupsTab> {
                 ),
               ),
             ),
-          for (final question in context.questions) _question(question),
+          for (final question in _visibleQuestions(context))
+            _question(question),
         ],
       ),
     ),

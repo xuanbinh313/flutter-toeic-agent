@@ -13,12 +13,14 @@ class ExamTakeOverview extends StatefulWidget {
     required this.onStartReal,
     required this.onStartDictation,
     required this.onRetakeQuestions,
+    required this.onReviewQuestions,
   });
   final Exam exam;
   final void Function(List<int> parts, List<String> tags) onStartPractice;
   final VoidCallback onStartReal;
   final VoidCallback onStartDictation;
   final ValueChanged<List<String>> onRetakeQuestions;
+  final ValueChanged<List<String>> onReviewQuestions;
   @override
   State<ExamTakeOverview> createState() => _ExamTakeOverviewState();
 }
@@ -318,6 +320,7 @@ class _ExamTakeOverviewState extends State<ExamTakeOverview> {
     builder: (_) => AttemptAnalyticsDialog(
       attempt: attempt,
       onRetake: widget.onRetakeQuestions,
+      onReview: widget.onReviewQuestions,
     ),
   );
   String _duration(int seconds) =>

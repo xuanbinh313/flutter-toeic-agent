@@ -8,10 +8,12 @@ class AttemptAnalyticsDialog extends StatefulWidget {
     super.key,
     required this.attempt,
     required this.onRetake,
+    required this.onReview,
   });
 
   final AttemptSummary attempt;
   final ValueChanged<List<String>> onRetake;
+  final ValueChanged<List<String>> onReview;
 
   @override
   State<AttemptAnalyticsDialog> createState() => _AttemptAnalyticsDialogState();
@@ -58,6 +60,13 @@ class _AttemptAnalyticsDialogState extends State<AttemptAnalyticsDialog> {
             : () => _retake(_loadedAnswers!),
         icon: const Icon(Icons.redo),
         label: const Text('Retake Wrong Answers'),
+      ),
+      OutlinedButton.icon(
+        onPressed: _loadedAnswers == null
+            ? null
+            : () => _review(_loadedAnswers!),
+        icon: const Icon(Icons.fact_check_outlined),
+        label: const Text('Review Wrong Answers'),
       ),
       TextButton(
         onPressed: () => Navigator.pop(context),
@@ -292,10 +301,7 @@ class _AttemptAnalyticsDialogState extends State<AttemptAnalyticsDialog> {
   );
 
   void _retake(List<AttemptAnswerDetail> answers) {
-    final ids = answers
-        .where((answer) => !answer.isCorrect)
-        .map((answer) => answer.questionId)
-        .toList();
+    final ids = _incorrectIds(answers);
     if (ids.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -307,6 +313,25 @@ class _AttemptAnalyticsDialogState extends State<AttemptAnalyticsDialog> {
     Navigator.pop(context);
     widget.onRetake(ids);
   }
+
+  void _review(List<AttemptAnswerDetail> answers) {
+    final ids = _incorrectIds(answers);
+    if (ids.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('There are no wrong or skipped answers to review.'),
+        ),
+      );
+      return;
+    }
+    Navigator.pop(context);
+    widget.onReview(ids);
+  }
+
+  List<String> _incorrectIds(List<AttemptAnswerDetail> answers) => answers
+      .where((answer) => !answer.isCorrect)
+      .map((answer) => answer.questionId)
+      .toList();
 
   String _duration(int seconds) =>
       '${(seconds ~/ 60).toString().padLeft(2, '0')}:${(seconds % 60).toString().padLeft(2, '0')}';

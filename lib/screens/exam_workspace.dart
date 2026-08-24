@@ -19,89 +19,102 @@ class ExamWorkspace extends StatefulWidget {
 }
 
 class _ExamWorkspaceState extends State<ExamWorkspace> {
+  List<String> _reviewQuestionIds = const [];
   Exam get exam => widget.exam;
   VoidCallback get changed => widget.changed;
+
+  void _reviewWrong(BuildContext tabContext, List<String> questionIds) {
+    setState(() => _reviewQuestionIds = questionIds);
+    DefaultTabController.of(tabContext).animateTo(1);
+  }
 
   @override
   Widget build(BuildContext context) => DefaultTabController(
     length: 6,
-    child: Scaffold(
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 10),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  IconButton(
-                    onPressed: () => Navigator.maybePop(context),
-                    tooltip: 'Back to exams',
-                    icon: const Icon(Icons.arrow_back),
-                  ),
-                  Expanded(
-                    child: const TabBar(
-                      isScrollable: true,
-                      tabAlignment: TabAlignment.start,
-                      tabs: [
-                        Tab(
-                          icon: Icon(Icons.edit_outlined),
-                          text: 'Exam Details',
-                        ),
-                        Tab(
-                          icon: Icon(Icons.segment),
-                          text: 'Groups & Questions',
-                        ),
-                        Tab(
-                          icon: Icon(Icons.play_circle_outline),
-                          text: 'Practice',
-                        ),
-                        Tab(
-                          icon: Icon(Icons.insights_outlined),
-                          text: 'Results',
-                        ),
-                        Tab(icon: Icon(Icons.history), text: 'History'),
-                        Tab(
-                          icon: Icon(Icons.subject_outlined),
-                          text: 'Transcript',
-                        ),
-                      ],
-                    ),
-                  ),
-                  const ReminderButton(),
-                  const SizedBox(width: 8),
-                  OutlinedButton.icon(
-                    onPressed: () {
-                      exam.published = !exam.published;
-                      changed();
-                    },
-                    icon: Icon(
-                      exam.published
-                          ? Icons.unpublished_outlined
-                          : Icons.publish_outlined,
-                    ),
-                    label: Text(exam.published ? 'Unpublish' : 'Publish'),
-                  ),
-                ],
-              ),
-
-              const SizedBox(height: 16),
-              Expanded(
-                child: TabBarView(
+    child: Builder(
+      builder: (tabContext) => Scaffold(
+        body: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
                   children: [
-                    ExamDetailsForm(exam: exam, onSaved: changed),
-                    ExamGroupsTab(exam: exam),
-                    _practice(context),
-                    _results(),
-                    _history(),
-                    TranscriptTab(
-                      examId: exam.id,
-                      audioSource: exam.audioName ?? exam.audioPath,
+                    IconButton(
+                      onPressed: () => Navigator.maybePop(context),
+                      tooltip: 'Back to exams',
+                      icon: const Icon(Icons.arrow_back),
+                    ),
+                    Expanded(
+                      child: const TabBar(
+                        isScrollable: true,
+                        tabAlignment: TabAlignment.start,
+                        tabs: [
+                          Tab(
+                            icon: Icon(Icons.edit_outlined),
+                            text: 'Exam Details',
+                          ),
+                          Tab(
+                            icon: Icon(Icons.segment),
+                            text: 'Groups & Questions',
+                          ),
+                          Tab(
+                            icon: Icon(Icons.play_circle_outline),
+                            text: 'Practice',
+                          ),
+                          Tab(
+                            icon: Icon(Icons.insights_outlined),
+                            text: 'Results',
+                          ),
+                          Tab(icon: Icon(Icons.history), text: 'History'),
+                          Tab(
+                            icon: Icon(Icons.subject_outlined),
+                            text: 'Transcript',
+                          ),
+                        ],
+                      ),
+                    ),
+                    const ReminderButton(),
+                    const SizedBox(width: 8),
+                    OutlinedButton.icon(
+                      onPressed: () {
+                        exam.published = !exam.published;
+                        changed();
+                      },
+                      icon: Icon(
+                        exam.published
+                            ? Icons.unpublished_outlined
+                            : Icons.publish_outlined,
+                      ),
+                      label: Text(exam.published ? 'Unpublish' : 'Publish'),
                     ),
                   ],
                 ),
-              ),
-            ],
+
+                const SizedBox(height: 16),
+                Expanded(
+                  child: TabBarView(
+                    children: [
+                      ExamDetailsForm(exam: exam, onSaved: changed),
+                      ExamGroupsTab(
+                        exam: exam,
+                        questionIds: _reviewQuestionIds,
+                        onClearQuestionFilter: () =>
+                            setState(() => _reviewQuestionIds = const []),
+                      ),
+                      _practice(tabContext),
+                      _results(),
+                      _history(),
+                      TranscriptTab(
+                        examId: exam.id,
+                        audioSource: exam.audioName ?? exam.audioPath,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -218,6 +231,7 @@ class _ExamWorkspaceState extends State<ExamWorkspace> {
     ),
     onRetakeQuestions: (questionIds) =>
         _quiz(context, false, questionIds: questionIds),
+    onReviewQuestions: (questionIds) => _reviewWrong(context, questionIds),
   );
   Widget _results() => ListView(
     children: [
