@@ -269,7 +269,7 @@ class _ExamGroupsTabState extends State<ExamGroupsTab> {
               alignment: Alignment.centerLeft,
               child: Padding(
                 padding: const EdgeInsets.only(bottom: 10),
-                child: Text(context.text),
+                child: SelectableText(context.text),
               ),
             ),
           if (context.note.isNotEmpty)
@@ -277,7 +277,7 @@ class _ExamGroupsTabState extends State<ExamGroupsTab> {
               alignment: Alignment.centerLeft,
               child: Padding(
                 padding: const EdgeInsets.only(bottom: 10),
-                child: Text(
+                child: SelectableText(
                   context.note,
                   style: const TextStyle(color: Color(0xff52616b)),
                 ),
@@ -447,9 +447,9 @@ class _ExamGroupsTabState extends State<ExamGroupsTab> {
               style: const TextStyle(fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 4),
-            Text(question.content),
+            SelectableText(question.content),
             for (var i = 0; i < question.options.length; i++)
-              Text(
+              SelectableText(
                 '${String.fromCharCode(65 + i)}. ${question.options[i]}',
                 style: TextStyle(
                   fontWeight:
@@ -462,7 +462,7 @@ class _ExamGroupsTabState extends State<ExamGroupsTab> {
             if (question.note.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.only(top: 6),
-                child: Text(
+                child: SelectableText(
                   question.note,
                   style: const TextStyle(color: Color(0xff52616b)),
                 ),

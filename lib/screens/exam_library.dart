@@ -14,6 +14,7 @@ class ExamLibrary extends StatefulWidget {
 
 class _ExamLibraryState extends State<ExamLibrary> {
   String _query = '';
+  _ExamSort _sort = _ExamSort.createdAt;
 
   Future<void> _addExam() async {
     await Navigator.push(
@@ -35,6 +36,16 @@ class _ExamLibraryState extends State<ExamLibrary> {
           (exam) => exam.title.toLowerCase().contains(_query.toLowerCase()),
         )
         .toList();
+    visible.sort((first, second) {
+      switch (_sort) {
+        case _ExamSort.name:
+          return first.title.toLowerCase().compareTo(
+            second.title.toLowerCase(),
+          );
+        case _ExamSort.createdAt:
+          return (second.createdAt ?? '').compareTo(first.createdAt ?? '');
+      }
+    });
     return Padding(
       padding: const EdgeInsets.all(24),
       child: Column(
@@ -69,21 +80,40 @@ class _ExamLibraryState extends State<ExamLibrary> {
               ),
             ],
           ),
-          const SizedBox(height: 22),
-          TextField(
-            onChanged: (value) => setState(() => _query = value),
-            decoration: const InputDecoration(
-              prefixIcon: Icon(Icons.search),
-              hintText: 'Search exams...',
-            ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  onChanged: (value) => setState(() => _query = value),
+                  decoration: const InputDecoration(
+                    prefixIcon: Icon(Icons.search),
+                    hintText: 'Search exams...',
+                    isDense: true,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              DropdownButton<_ExamSort>(
+                value: _sort,
+                onChanged: (value) => setState(() => _sort = value!),
+                items: const [
+                  DropdownMenuItem(value: _ExamSort.name, child: Text('Name')),
+                  DropdownMenuItem(
+                    value: _ExamSort.createdAt,
+                    child: Text('Created date'),
+                  ),
+                ],
+              ),
+            ],
           ),
-          const SizedBox(height: 18),
+          const SizedBox(height: 12),
           Expanded(
             child: visible.isEmpty
                 ? const Center(child: Text('No exams found.'))
                 : ListView.separated(
                     itemCount: visible.length,
-                    separatorBuilder: (_, _) => const SizedBox(height: 12),
+                    separatorBuilder: (_, _) => const SizedBox(height: 8),
                     itemBuilder: (_, index) => _ExamCard(
                       exam: visible[index],
                       changed: widget.changed,
@@ -96,6 +126,8 @@ class _ExamLibraryState extends State<ExamLibrary> {
   }
 }
 
+enum _ExamSort { name, createdAt }
+
 class _ExamCard extends StatelessWidget {
   const _ExamCard({required this.exam, required this.changed});
   final Exam exam;
@@ -105,8 +137,11 @@ class _ExamCard extends StatelessWidget {
   Widget build(BuildContext context) => Card(
     elevation: 0,
     child: ListTile(
-      contentPadding: const EdgeInsets.all(16),
+      dense: true,
+      visualDensity: VisualDensity.compact,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       leading: const CircleAvatar(
+        radius: 18,
         backgroundColor: Color(0xffe8f0fe),
         child: Icon(Icons.description_outlined, color: Color(0xff1a73e8)),
       ),
@@ -115,18 +150,19 @@ class _ExamCard extends StatelessWidget {
         style: const TextStyle(fontWeight: FontWeight.w700),
       ),
       subtitle: Padding(
-        padding: const EdgeInsets.only(top: 6),
+        padding: const EdgeInsets.only(top: 3),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(exam.description),
-            const SizedBox(height: 10),
+            const SizedBox(height: 5),
             Wrap(
-              spacing: 7,
+              spacing: 5,
+              runSpacing: 3,
               children: [
-                Chip(label: Text('${exam.duration} min')),
-                Chip(label: Text('${exam.questions} questions')),
-                Chip(label: Text(exam.published ? 'Published' : 'Draft')),
+                _ExamTag(label: '${exam.duration} min'),
+                _ExamTag(label: '${exam.questions} questions'),
+                _ExamTag(label: exam.published ? 'Published' : 'Draft'),
               ],
             ),
           ],
@@ -140,5 +176,18 @@ class _ExamCard extends StatelessWidget {
         ),
       ),
     ),
+  );
+}
+
+class _ExamTag extends StatelessWidget {
+  const _ExamTag({required this.label});
+  final String label;
+
+  @override
+  Widget build(BuildContext context) => Chip(
+    label: Text(label, style: const TextStyle(fontSize: 12)),
+    labelPadding: const EdgeInsets.symmetric(horizontal: 4),
+    padding: EdgeInsets.zero,
+    visualDensity: VisualDensity.compact,
   );
 }

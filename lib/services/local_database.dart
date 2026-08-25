@@ -39,6 +39,7 @@ class LocalDatabase {
     final db = await database;
     final rows = await db.rawQuery('''
       SELECT e.id, e.title, e.description, e.duration_minutes, e.is_published, e.audio_name, e.full_audio_url,
+             e.created_at,
              COUNT(q.id) AS question_count
       FROM exams e
       LEFT JOIN exam_contexts c ON c.exam_id = e.id
@@ -55,6 +56,7 @@ class LocalDatabase {
             duration: (row['duration_minutes'] as num?)?.toInt() ?? 0,
             questions: (row['question_count'] as num?)?.toInt() ?? 0,
             published: (row['is_published'] as num?)?.toInt() == 1,
+            createdAt: (row['created_at'] as String?) ?? '',
             audioName: row['audio_name'] as String?,
             audioPath: row['full_audio_url'] as String?,
           ),

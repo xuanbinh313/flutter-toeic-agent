@@ -6,6 +6,7 @@ class Exam {
     required this.questions,
     this.published = false,
     this.id = '',
+    this.createdAt = '',
     this.audioName,
     this.audioPath,
   });
@@ -15,6 +16,7 @@ class Exam {
   int duration;
   final int questions;
   String id;
+  final String? createdAt;
   String? audioName;
   String? audioPath;
   bool published;
