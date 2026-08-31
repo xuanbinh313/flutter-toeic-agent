@@ -8,6 +8,7 @@ import 'services/auth_service.dart';
 import 'services/background_app_service.dart';
 import 'services/local_database.dart';
 import 'services/sync_service.dart';
+import 'services/vocabulary_review_store.dart';
 import 'widgets/settings_page.dart';
 
 enum _MenuAction { authenticate, logout, syncToRemote, syncToLocal }
@@ -99,7 +100,7 @@ class _WorkspaceState extends State<Workspace> {
   Future<void> _load() async {
     final values = await Future.wait([
       LocalDatabase.instance.loadExams(),
-      LocalDatabase.instance.loadVocabulary(),
+      VocabularyReviewStore.load(),
     ]);
     if (mounted) {
       setState(() {

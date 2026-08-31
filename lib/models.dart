@@ -23,13 +23,40 @@ class Exam {
 }
 
 class Vocab {
-  Vocab(this.word, this.meaning, this.source, [this.status = 1, this.id = '']);
+  Vocab(
+    this.word,
+    this.meaning,
+    this.source, [
+    this.status = 1,
+    this.id = '',
+    this.dueAt,
+    this.stability,
+    this.difficulty,
+    this.reps = 0,
+    this.lapses = 0,
+    this.state,
+    this.step,
+    this.lastReviewedAt,
+    this.lastRating,
+  ]);
 
   final String word;
   final String meaning;
   final String source;
   int status;
   final String id;
+  DateTime? dueAt;
+  double? stability;
+  double? difficulty;
+  int reps;
+  int lapses;
+  int? state;
+  int? step;
+  DateTime? lastReviewedAt;
+  int? lastRating;
+
+  bool get isNew => state == null;
+  bool get isDue => isNew || dueAt == null || !dueAt!.isAfter(DateTime.now());
 }
 
 class SrtChunk {

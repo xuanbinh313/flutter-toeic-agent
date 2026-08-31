@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../models.dart';
+import '../services/vocabulary_scheduler.dart';
+import 'vocabulary_review_page.dart';
 
 class VocabularyPage extends StatefulWidget {
   const VocabularyPage({super.key, required this.words, required this.changed});
@@ -19,7 +21,7 @@ class _VocabularyPageState extends State<VocabularyPage> {
         .where(
           (word) =>
               word.word.contains(_query.toLowerCase()) &&
-              (!_dueOnly || word.status < 3),
+              (!_dueOnly || word.isDue),
         )
         .toList();
     return Padding(
@@ -46,13 +48,11 @@ class _VocabularyPageState extends State<VocabularyPage> {
                 ),
               ),
               FilledButton.icon(
-                onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('All empty meanings are already translated.'),
-                  ),
+                onPressed: _startReview,
+                icon: const Icon(Icons.play_arrow),
+                label: Text(
+                  'Start (${VocabularyScheduler.nextCards(widget.words).length})',
                 ),
-                icon: const Icon(Icons.auto_awesome),
-                label: const Text('Translate empty'),
               ),
             ],
           ),
@@ -144,5 +144,24 @@ class _VocabularyPageState extends State<VocabularyPage> {
         ],
       ),
     );
+  }
+
+  Future<void> _startReview() async {
+    final cards = VocabularyScheduler.nextCards(widget.words);
+    if (cards.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No vocabulary is due right now.')),
+      );
+      return;
+    }
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => VocabularyReviewPage(words: widget.words),
+      ),
+    );
+    if (mounted) {
+      setState(() {});
+      widget.changed();
+    }
   }
 }

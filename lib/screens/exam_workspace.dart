@@ -102,6 +102,7 @@ class _ExamWorkspaceState extends State<ExamWorkspace> {
                         questionIds: _reviewQuestionIds,
                         onClearQuestionFilter: () =>
                             setState(() => _reviewQuestionIds = const []),
+                        onVocabularyAdded: changed,
                       ),
                       _practice(tabContext),
                       _results(),

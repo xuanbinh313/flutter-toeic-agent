@@ -9,6 +9,7 @@ import '../models.dart';
 import '../services/local_database.dart';
 import '../services/range_audio_player.dart';
 import 'context_tag_dialog.dart';
+import 'vocabulary_selectable_text.dart';
 
 class ExamGroupsTab extends StatefulWidget {
   const ExamGroupsTab({
@@ -16,11 +17,13 @@ class ExamGroupsTab extends StatefulWidget {
     required this.exam,
     this.questionIds = const [],
     this.onClearQuestionFilter,
+    this.onVocabularyAdded,
   });
 
   final Exam exam;
   final List<String> questionIds;
   final VoidCallback? onClearQuestionFilter;
+  final VoidCallback? onVocabularyAdded;
 
   @override
   State<ExamGroupsTab> createState() => _ExamGroupsTabState();
@@ -269,7 +272,12 @@ class _ExamGroupsTabState extends State<ExamGroupsTab> {
               alignment: Alignment.centerLeft,
               child: Padding(
                 padding: const EdgeInsets.only(bottom: 10),
-                child: SelectableText(context.text),
+                child: VocabularySelectableText(
+                  text: context.text,
+                  contextId: context.id,
+                  sourceText: context.text,
+                  onVocabularyAdded: widget.onVocabularyAdded,
+                ),
               ),
             ),
           if (context.note.isNotEmpty)
@@ -277,9 +285,12 @@ class _ExamGroupsTabState extends State<ExamGroupsTab> {
               alignment: Alignment.centerLeft,
               child: Padding(
                 padding: const EdgeInsets.only(bottom: 10),
-                child: SelectableText(
-                  context.note,
+                child: VocabularySelectableText(
+                  text: context.note,
+                  contextId: context.id,
+                  sourceText: context.text,
                   style: const TextStyle(color: Color(0xff52616b)),
+                  onVocabularyAdded: widget.onVocabularyAdded,
                 ),
               ),
             ),
@@ -301,7 +312,7 @@ class _ExamGroupsTabState extends State<ExamGroupsTab> {
               ),
             ),
           for (final question in _visibleQuestions(context))
-            _question(question),
+            _question(question, context),
         ],
       ),
     ),
@@ -434,7 +445,7 @@ class _ExamGroupsTabState extends State<ExamGroupsTab> {
     if (mounted) await _load();
   }
 
-  Widget _question(ExamQuestion question) => Padding(
+  Widget _question(ExamQuestion question, ExamContext context) => Padding(
     padding: const EdgeInsets.only(top: 10),
     child: Card(
       child: Padding(
@@ -447,10 +458,17 @@ class _ExamGroupsTabState extends State<ExamGroupsTab> {
               style: const TextStyle(fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 4),
-            SelectableText(question.content),
+            VocabularySelectableText(
+              text: question.content,
+              contextId: context.id,
+              sourceText: context.text,
+              onVocabularyAdded: widget.onVocabularyAdded,
+            ),
             for (var i = 0; i < question.options.length; i++)
-              SelectableText(
-                '${String.fromCharCode(65 + i)}. ${question.options[i]}',
+              VocabularySelectableText(
+                text: '${String.fromCharCode(65 + i)}. ${question.options[i]}',
+                contextId: context.id,
+                sourceText: context.text,
                 style: TextStyle(
                   fontWeight:
                       question.correctAnswer.toUpperCase() ==
@@ -458,13 +476,17 @@ class _ExamGroupsTabState extends State<ExamGroupsTab> {
                       ? FontWeight.bold
                       : FontWeight.normal,
                 ),
+                onVocabularyAdded: widget.onVocabularyAdded,
               ),
             if (question.note.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.only(top: 6),
-                child: SelectableText(
-                  question.note,
+                child: VocabularySelectableText(
+                  text: question.note,
+                  contextId: context.id,
+                  sourceText: context.text,
                   style: const TextStyle(color: Color(0xff52616b)),
+                  onVocabularyAdded: widget.onVocabularyAdded,
                 ),
               ),
           ],

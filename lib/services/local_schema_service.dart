@@ -7,6 +7,7 @@ class LocalSchemaService {
     for (final statement in _statements) {
       await db.execute(statement);
     }
+    await ensureColumns(db, 'vocabulary', _vocabularySchedulingColumns);
   }
 
   /// Remote schemas can gain optional fields between app releases. SQLite
@@ -62,6 +63,8 @@ class LocalSchemaService {
       id TEXT PRIMARY KEY, context_id TEXT, word TEXT, meaning TEXT,
       source_text TEXT, status INTEGER, ord INTEGER, additional_meta TEXT,
       due_at TEXT, stability REAL, difficulty REAL,
+      schedule_days INTEGER, reps INTEGER, lapses INTEGER, state INTEGER,
+      step INTEGER, last_reviewed_at TEXT, last_rating INTEGER,
       created_at TEXT, updated_at TEXT, user_id TEXT,
       dirty INTEGER NOT NULL DEFAULT 1
     )''',
@@ -87,5 +90,15 @@ class LocalSchemaService {
       is_deleted INTEGER NOT NULL DEFAULT 0, user_id TEXT, created_at TEXT NOT NULL,
       dirty INTEGER NOT NULL DEFAULT 1
     )''',
+  ];
+
+  static const _vocabularySchedulingColumns = [
+    'schedule_days',
+    'reps',
+    'lapses',
+    'state',
+    'step',
+    'last_reviewed_at',
+    'last_rating',
   ];
 }

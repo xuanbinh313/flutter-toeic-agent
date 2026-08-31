@@ -64,24 +64,6 @@ class LocalDatabase {
         .toList();
   }
 
-  Future<List<Vocab>> loadVocabulary() async {
-    final rows = await (await database).query(
-      'vocabulary',
-      orderBy: 'ord ASC, word COLLATE NOCASE',
-    );
-    return rows
-        .map(
-          (row) => Vocab(
-            row['word'] as String,
-            (row['meaning'] as String?) ?? '',
-            (row['source_text'] as String?) ?? '',
-            (row['status'] as num?)?.toInt() ?? 1,
-            row['id'] as String,
-          ),
-        )
-        .toList();
-  }
-
   Future<List<SrtChunk>> loadSrtChunks(String examId) async {
     final rows = await (await database).query(
       'exam_srt_chunks',
@@ -493,4 +475,39 @@ class LocalDatabase {
       whereArgs: [word.id],
     ),
   ));
+
+  Future<Vocab> addVocabulary({
+    required String word,
+    required String contextId,
+    required String sourceText,
+  }) async {
+    final normalizedWord = word.trim();
+    if (normalizedWord.isEmpty) {
+      throw ArgumentError.value(
+        word,
+        'word',
+        'Vocabulary word cannot be empty.',
+      );
+    }
+    final db = await database;
+    final orderRows = await db.rawQuery(
+      'SELECT COALESCE(MAX(ord), -1) + 1 AS next_order FROM vocabulary',
+    );
+    final order = (orderRows.first['next_order'] as num?)?.toInt() ?? 0;
+    final now = DateTime.now().toUtc().toIso8601String();
+    final vocabulary = Vocab(normalizedWord, '', sourceText, 1, newUuid());
+    await db.insert('vocabulary', {
+      'id': vocabulary.id,
+      'context_id': contextId,
+      'word': vocabulary.word,
+      'meaning': vocabulary.meaning,
+      'source_text': vocabulary.source,
+      'status': vocabulary.status,
+      'ord': order,
+      'created_at': now,
+      'updated_at': now,
+      'dirty': 1,
+    });
+    return vocabulary;
+  }
 }
