@@ -966,7 +966,7 @@ packages:
     source: hosted
     version: "33.2.15"
   syncfusion_pdfviewer_platform_interface:
-    dependency: transitive
+    dependency: "direct main"
     description:
       name: syncfusion_pdfviewer_platform_interface
       sha256: f4dc6151e9f5a8ca1a385773ada3f23e1a5f96ece867045620f7e7600653717b

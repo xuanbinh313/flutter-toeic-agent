@@ -1,10 +1,10 @@
-import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
 import 'package:desktop_multi_window/desktop_multi_window.dart';
 import 'package:flutter/material.dart';
 
+import '../features/import_questions/import_refresh_listener.dart';
 import '../models.dart';
 import '../services/local_database.dart';
 import '../services/range_audio_player.dart';
@@ -39,7 +39,7 @@ class _ExamGroupsTabState extends State<ExamGroupsTab> {
   Map<String, Set<String>> _contextTags = {};
   int? _part;
   bool _loading = true;
-  StreamSubscription<void>? _windowsSubscription;
+  late final ImportRefreshListener _importRefresh;
 
   bool _matchesReview(ExamContext context) =>
       widget.questionIds.isEmpty ||
@@ -58,7 +58,7 @@ class _ExamGroupsTabState extends State<ExamGroupsTab> {
   void initState() {
     super.initState();
     _load();
-    _windowsSubscription = onWindowsChanged.listen((_) => _load());
+    _importRefresh = ImportRefreshListener(_load);
   }
 
   Future<void> _load() async {
@@ -133,7 +133,7 @@ class _ExamGroupsTabState extends State<ExamGroupsTab> {
 
   @override
   void dispose() {
-    _windowsSubscription?.cancel();
+    _importRefresh.dispose();
     _rangePlayer.dispose();
     super.dispose();
   }
@@ -428,6 +428,7 @@ class _ExamGroupsTabState extends State<ExamGroupsTab> {
         note: note.text.trim(),
         audioStart: double.tryParse(start.text) ?? 0,
         audioEnd: double.tryParse(end.text) ?? 0,
+        imagePath: context?.imagePath,
       );
     }
     for (final controller in [part, type, text, note, start, end]) {

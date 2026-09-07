@@ -46,6 +46,7 @@ dependencies:
   desktop_multi_window: ^0.3.0
   flutter_dotenv: ^5.2.1
   syncfusion_flutter_pdfviewer: ^33.2.13
+  syncfusion_pdfviewer_platform_interface: ^33.2.15
   syncfusion_flutter_pdf: ^33.2.13
   google_generative_ai: ^0.4.7
   minio: ^3.5.8

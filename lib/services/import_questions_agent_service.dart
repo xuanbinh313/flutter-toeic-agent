@@ -8,7 +8,8 @@ import 'package:path_provider/path_provider.dart';
 import 'package:syncfusion_flutter_pdf/pdf.dart';
 
 import '../config.dart';
-import '../models.dart';
+import '../features/import_questions/import_questions_agent_prompts.dart';
+import '../features/import_questions/import_part_store.dart';
 import 'local_database.dart';
 import 'part_one_image_splitter.dart';
 
@@ -70,30 +71,8 @@ class ImportQuestionsAgentService {
   String readingAnswerSheet = '';
   final requests = <AgentRequest>[];
 
-  static String defaultPrompt(int part) {
-    final type = switch (part) {
-      1 => 'IMAGE_DIAGRAM',
-      2 => 'STANDALONE',
-      3 || 4 => 'AUDIO_SRT',
-      _ => 'READING_PASSAGE',
-    };
-    final range = switch (part) {
-      1 => '1-10',
-      2 => '11-40',
-      3 => '41-70',
-      4 => '71-100',
-      5 => '101-130',
-      6 => '131-146',
-      _ => '147-200',
-    };
-    return '''Analyze ONLY TOEIC Part $part. Output only one raw JSON object.
-Return {"contexts":[...]}; each context must have id, part, context_type,
-content {"text":""}, index, additional_meta {"note":""}, and nested
-questions. Each question needs question_number, question_type, content,
-options, correct_answer, additional_meta {"note":""}.
-Use natural Vietnamese in every non-empty note. Extract only questions $range.
-Use context_type "$type" and do not include another TOEIC part.''';
-  }
+  static String defaultPrompt(int part) =>
+      ImportQuestionsAgentPrompts.forPart(part);
 
   Future<String> prepareOverallSourcePdf({
     required String section,
@@ -177,6 +156,15 @@ Use context_type "$type" and do not include another TOEIC part.''';
     request.attempts++;
     onProgress?.call('Preparing Part ${input.part}...');
     try {
+      final partOneImages =
+          input.part == 1 &&
+              input.questionPdf.isNotEmpty &&
+              input.questionPages.isNotEmpty
+          ? await PartOneImageSplitter().splitPdfPages(
+              input.questionPdf,
+              input.questionPages,
+            )
+          : const <String>[];
       final parts = <Part>[TextPart(_promptFor(input))];
       if (input.questionPdf.isNotEmpty && input.questionPages.isNotEmpty) {
         parts.add(
@@ -215,19 +203,12 @@ Use context_type "$type" and do not include another TOEIC part.''';
         throw StateError('Gemini returned an empty response.');
       }
       final contexts = _parseContexts(text, input.part);
-      final partOneImages =
-          input.part == 1 &&
-              input.questionPdf.isNotEmpty &&
-              input.questionPages.isNotEmpty
-          ? await PartOneImageSplitter().splitPdfPages(
-              input.questionPdf,
-              input.questionPages,
-            )
-          : const <String>[];
       _applyPartOneImages(contexts, partOneImages);
-      await _saveContexts(contexts);
+      await ImportPartStore(
+        await LocalDatabase.instance.database,
+      ).replace(examId: examId, part: input.part, contexts: contexts);
       request.status = 'succeeded';
-      onProgress?.call('Imported Part ${input.part}.');
+      onProgress?.call('Replaced Part ${input.part} groups and questions.');
     } catch (error) {
       request.status = 'failed';
       request.error = '$error';
@@ -237,6 +218,11 @@ Use context_type "$type" and do not include another TOEIC part.''';
 
   String _promptFor(ImportPartInput input) =>
       '''${input.prompt}
+
+Target TOEIC part: ${input.part}.
+Extract ONLY TOEIC Part ${input.part}.
+Return only the raw JSON object with contexts containing nested questions.
+${ImportQuestionsAgentPrompts.noteContract}
 
 Selected question PDF pages: ${_pages(input.questionPages)}.
 Selected transcript PDF pages: ${_pages(input.transcriptPages)}.
@@ -253,6 +239,9 @@ correct_answer. Return no markdown or explanation outside the JSON object.''';
     final rows = decoded is List ? decoded : (decoded as Map)['contexts'];
     if (rows is! List) {
       throw const FormatException('Response has no contexts array.');
+    }
+    if (rows.isEmpty || rows.any((row) => row is! Map)) {
+      throw const FormatException('Response has no valid contexts to import.');
     }
     return rows.whereType<Map>().map((row) {
       final value = Map<String, dynamic>.from(row);
@@ -302,49 +291,6 @@ correct_answer. Return no markdown or explanation outside the JSON object.''';
         });
       }
       context['questions'] = questions;
-    }
-  }
-
-  Future<void> _saveContexts(List<Map<String, dynamic>> contexts) async {
-    for (var index = 0; index < contexts.length; index++) {
-      final context = contexts[index];
-      final content = context['content'];
-      final meta = context['additional_meta'];
-      final questions = (context['questions'] as List? ?? []).whereType<Map>();
-      final mapped = questions
-          .map((question) {
-            final item = Map<String, dynamic>.from(question);
-            final questionMeta = item['additional_meta'] as Map?;
-            return ExamQuestion(
-              id: '',
-              number: (item['question_number'] as num?)?.toInt() ?? 0,
-              type: '${item['question_type'] ?? 'MULTIPLE_CHOICE'}'
-                  .toUpperCase(),
-              content: '${item['content'] ?? ''}',
-              options: (item['options'] as List? ?? [])
-                  .map((value) => '$value')
-                  .toList(),
-              correctAnswer: '${item['correct_answer'] ?? ''}'.toUpperCase(),
-              note: '${questionMeta?['note'] ?? ''}',
-            );
-          })
-          .where((question) => question.number > 0)
-          .toList();
-      await LocalDatabase.instance.saveContext(
-        examId: examId,
-        part: (context['part'] as num?)?.toInt() ?? 1,
-        type: '${context['context_type'] ?? 'STANDALONE'}'.toUpperCase(),
-        text: content is Map ? '${content['text'] ?? ''}' : '$content',
-        note: meta is Map ? '${meta['note'] ?? ''}' : '',
-        audioStart: meta is Map
-            ? (meta['audio_start'] as num?)?.toDouble() ?? 0
-            : 0,
-        audioEnd: meta is Map
-            ? (meta['audio_end'] as num?)?.toDouble() ?? 0
-            : 0,
-        questions: mapped,
-        imagePath: content is Map ? content['image_path'] as String? : null,
-      );
     }
   }
 

@@ -4,6 +4,8 @@ import 'package:opencv_dart/opencv_dart.dart' as cv;
 import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
 
+import '../features/import_questions/pdf_page_renderer.dart';
+
 class PartOneImageSplitter {
   Future<List<String>> splitPdfPages(
     String pdfPath,
@@ -37,30 +39,8 @@ class PartOneImageSplitter {
     int pageIndex,
     Directory output,
   ) async {
-    final prefix = path.join(output.path, 'page_${pageIndex + 1}');
-    ProcessResult result;
-    try {
-      result = await Process.run('pdftoppm', [
-        '-f',
-        '${pageIndex + 1}',
-        '-l',
-        '${pageIndex + 1}',
-        '-r',
-        '200',
-        '-png',
-        '-singlefile',
-        pdfPath,
-        prefix,
-      ]);
-    } on ProcessException catch (error) {
-      throw StateError('PDF page rendering is unavailable: $error');
-    }
-    final imagePath = '$prefix.png';
-    if (result.exitCode != 0 || !File(imagePath).existsSync()) {
-      throw StateError(
-        'Could not render Part 1 page ${pageIndex + 1}: ${result.stderr}',
-      );
-    }
+    final imagePath = path.join(output.path, 'page_${pageIndex + 1}.png');
+    await PdfPageRenderer().render(pdfPath, pageIndex, imagePath);
     return imagePath;
   }
 
