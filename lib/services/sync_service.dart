@@ -22,6 +22,7 @@ class SyncService {
     'vocabulary',
     'exam_attempts',
     'user_answers',
+    'config',
   ];
   // The deployed JunEdu Supabase schema predates this local-only field.
   static const _unsupportedRemoteColumns = {
@@ -221,8 +222,24 @@ class SyncService {
       for (final column in unsupportedColumns) {
         payload.remove(column);
       }
+      if (table == 'vocabulary') {
+        // Supabase requires a JSON object here. SQLite stores JSON as text,
+        // and older rows may not have the column yet.
+        payload['data'] = _jsonObject(payload['data']);
+      }
       return payload;
     }).toList();
+  }
+
+  Map<String, Object?> _jsonObject(Object? value) {
+    if (value is Map) return Map<String, Object?>.from(value);
+    if (value is! String || value.trim().isEmpty) return {};
+    try {
+      final decoded = jsonDecode(value);
+      return decoded is Map ? Map<String, Object?>.from(decoded) : {};
+    } on FormatException {
+      return {};
+    }
   }
 
   Future<void> _repairPendingIdentifiers(Database db) =>

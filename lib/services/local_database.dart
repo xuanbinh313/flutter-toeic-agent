@@ -504,6 +504,7 @@ class LocalDatabase {
       'source_text': vocabulary.source,
       'status': vocabulary.status,
       'ord': order,
+      'data': '{}',
       'created_at': now,
       'updated_at': now,
       'dirty': 1,

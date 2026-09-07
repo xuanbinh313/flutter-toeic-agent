@@ -28,6 +28,8 @@ class VocabularyReviewStore {
         _intOrNull(row['step'], schedule['step']),
         _date(row['last_reviewed_at'] ?? schedule['last_reviewed_at']),
         _intOrNull(row['last_rating'], schedule['last_rating']),
+        (row['sentence'] as String?) ?? '',
+        (row['sentence_translation'] as String?) ?? '',
       );
     }).toList();
   }
@@ -64,6 +66,69 @@ class VocabularyReviewStore {
       where: 'id = ?',
       whereArgs: [word.id],
     );
+  }
+
+  static Future<void> saveDetails({
+    required String id,
+    required String word,
+    required String meaning,
+    required String source,
+  }) async {
+    if (word.trim().isEmpty) {
+      throw ArgumentError('Vocabulary word cannot be empty.');
+    }
+    final count = await (await LocalDatabase.instance.database).update(
+      'vocabulary',
+      {
+        'word': word.trim(),
+        'meaning': meaning.trim(),
+        'source_text': source.trim(),
+        'updated_at': DateTime.now().toUtc().toIso8601String(),
+        'dirty': 1,
+      },
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+    if (count != 1) throw StateError('Vocabulary entry no longer exists.');
+  }
+
+  static Future<void> saveMeanings(Map<String, String> meanings) async {
+    if (meanings.isEmpty) return;
+    final now = DateTime.now().toUtc().toIso8601String();
+    final db = await LocalDatabase.instance.database;
+    await db.transaction((transaction) async {
+      for (final entry in meanings.entries) {
+        await transaction.update(
+          'vocabulary',
+          {'meaning': entry.value, 'updated_at': now, 'dirty': 1},
+          where: 'id = ?',
+          whereArgs: [entry.key],
+        );
+      }
+    });
+  }
+
+  static Future<void> saveSentences(
+    Map<String, ({String sentence, String translation})> sentences,
+  ) async {
+    if (sentences.isEmpty) return;
+    final now = DateTime.now().toUtc().toIso8601String();
+    final db = await LocalDatabase.instance.database;
+    await db.transaction((transaction) async {
+      for (final entry in sentences.entries) {
+        await transaction.update(
+          'vocabulary',
+          {
+            'sentence': entry.value.sentence,
+            'sentence_translation': entry.value.translation,
+            'updated_at': now,
+            'dirty': 1,
+          },
+          where: 'id = ?',
+          whereArgs: [entry.key],
+        );
+      }
+    });
   }
 
   static Map<String, dynamic> _jsonMap(Object? value) {

@@ -38,11 +38,13 @@ class Vocab {
     this.step,
     this.lastReviewedAt,
     this.lastRating,
+    this.sentence = '',
+    this.sentenceTranslation = '',
   ]);
 
-  final String word;
-  final String meaning;
-  final String source;
+  String word;
+  String meaning;
+  String source;
   int status;
   final String id;
   DateTime? dueAt;
@@ -54,6 +56,8 @@ class Vocab {
   int? step;
   DateTime? lastReviewedAt;
   int? lastRating;
+  String sentence;
+  String sentenceTranslation;
 
   bool get isNew => state == null;
   bool get isDue => isNew || dueAt == null || !dueAt!.isAfter(DateTime.now());

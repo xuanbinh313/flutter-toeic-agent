@@ -7,7 +7,21 @@ class LocalSchemaService {
     for (final statement in _statements) {
       await db.execute(statement);
     }
-    await ensureColumns(db, 'vocabulary', _vocabularySchedulingColumns);
+    await ensureColumns(db, 'vocabulary', _vocabularyColumns);
+    await _ensureVocabularyData(db);
+  }
+
+  /// The shared Supabase vocabulary table requires this JSON column. Older
+  /// local databases predate it, so add and backfill it before any upload.
+  static Future<void> _ensureVocabularyData(Database db) async {
+    final columns = await db.rawQuery('PRAGMA table_info("vocabulary")');
+    final hasData = columns.any((column) => column['name'] == 'data');
+    if (!hasData) {
+      await db.execute(
+        "ALTER TABLE vocabulary ADD COLUMN data TEXT NOT NULL DEFAULT '{}'",
+      );
+    }
+    await db.rawUpdate("UPDATE vocabulary SET data = '{}' WHERE data IS NULL");
   }
 
   /// Remote schemas can gain optional fields between app releases. SQLite
@@ -65,6 +79,8 @@ class LocalSchemaService {
       due_at TEXT, stability REAL, difficulty REAL,
       schedule_days INTEGER, reps INTEGER, lapses INTEGER, state INTEGER,
       step INTEGER, last_reviewed_at TEXT, last_rating INTEGER,
+      sentence TEXT, sentence_translation TEXT,
+      data TEXT NOT NULL DEFAULT '{}',
       created_at TEXT, updated_at TEXT, user_id TEXT,
       dirty INTEGER NOT NULL DEFAULT 1
     )''',
@@ -90,9 +106,14 @@ class LocalSchemaService {
       is_deleted INTEGER NOT NULL DEFAULT 0, user_id TEXT, created_at TEXT NOT NULL,
       dirty INTEGER NOT NULL DEFAULT 1
     )''',
+    '''CREATE TABLE IF NOT EXISTS config (
+      id TEXT PRIMARY KEY, key_name TEXT NOT NULL, value TEXT NOT NULL,
+      created_at TEXT, updated_at TEXT, user_id TEXT,
+      dirty INTEGER NOT NULL DEFAULT 1
+    )''',
   ];
 
-  static const _vocabularySchedulingColumns = [
+  static const _vocabularyColumns = [
     'schedule_days',
     'reps',
     'lapses',
@@ -100,5 +121,7 @@ class LocalSchemaService {
     'step',
     'last_reviewed_at',
     'last_rating',
+    'sentence',
+    'sentence_translation',
   ];
 }

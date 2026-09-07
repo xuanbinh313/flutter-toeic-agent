@@ -2,26 +2,33 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../models.dart';
-import '../services/vocabulary_scheduler.dart';
 import '../services/vocabulary_review_store.dart';
+import '../services/vocabulary_scheduler.dart';
 
-class VocabularyReviewPage extends StatefulWidget {
-  const VocabularyReviewPage({super.key, required this.words});
+class VocabularySentenceReviewPage extends StatefulWidget {
+  const VocabularySentenceReviewPage({
+    super.key,
+    required this.words,
+    required this.wordIds,
+  });
 
   final List<Vocab> words;
+  final Set<String> wordIds;
 
   @override
-  State<VocabularyReviewPage> createState() => _VocabularyReviewPageState();
+  State<VocabularySentenceReviewPage> createState() =>
+      _VocabularySentenceReviewPageState();
 }
 
-class _VocabularyReviewPageState extends State<VocabularyReviewPage> {
+class _VocabularySentenceReviewPageState
+    extends State<VocabularySentenceReviewPage> {
   bool _showAnswer = false;
   bool _saving = false;
   int _reviewed = 0;
 
   Vocab? get _current {
     final cards = VocabularyScheduler.nextCards(widget.words);
-    return cards.isEmpty ? null : cards.first;
+    return cards.where((word) => widget.wordIds.contains(word.id)).firstOrNull;
   }
 
   Future<void> _rate(int rating) async {
@@ -70,7 +77,7 @@ class _VocabularyReviewPageState extends State<VocabularyReviewPage> {
     final word = _current;
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Vocabulary review'),
+        title: const Text('Sentence review'),
         actions: [
           Padding(
             padding: const EdgeInsets.only(right: 20),
@@ -119,36 +126,20 @@ class _VocabularyReviewPageState extends State<VocabularyReviewPage> {
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            SelectableText(
-                              word.word,
+                            SelectableText.rich(
+                              _sentenceText(word),
                               textAlign: TextAlign.center,
-                              style: const TextStyle(
-                                fontSize: 34,
-                                fontWeight: FontWeight.w700,
-                              ),
+                              style: const TextStyle(fontSize: 30),
                             ),
                             const SizedBox(height: 18),
                             if (_showAnswer) ...[
                               const Divider(),
                               const SizedBox(height: 18),
                               SelectableText(
-                                word.meaning.isEmpty
-                                    ? 'No Vietnamese translation saved.'
-                                    : word.meaning,
+                                word.sentenceTranslation,
                                 textAlign: TextAlign.center,
                                 style: const TextStyle(fontSize: 24),
                               ),
-                              if (word.source.isNotEmpty) ...[
-                                const SizedBox(height: 22),
-                                SelectableText(
-                                  word.source,
-                                  textAlign: TextAlign.center,
-                                  style: const TextStyle(
-                                    color: Color(0xff52616b),
-                                    fontStyle: FontStyle.italic,
-                                  ),
-                                ),
-                              ],
                             ] else
                               const Text('Press Enter or use Show answer.'),
                           ],
@@ -182,18 +173,45 @@ class _VocabularyReviewPageState extends State<VocabularyReviewPage> {
     );
   }
 
+  TextSpan _sentenceText(Vocab word) {
+    final sentence = word.sentence;
+    final target = word.word.trim();
+    if (target.isEmpty) return TextSpan(text: sentence);
+    final matches = RegExp(
+      RegExp.escape(target),
+      caseSensitive: false,
+    ).allMatches(sentence);
+    if (matches.isEmpty) return TextSpan(text: sentence);
+    final spans = <TextSpan>[];
+    var start = 0;
+    for (final match in matches) {
+      if (match.start > start) {
+        spans.add(TextSpan(text: sentence.substring(start, match.start)));
+      }
+      spans.add(
+        TextSpan(
+          text: sentence.substring(match.start, match.end),
+          style: const TextStyle(fontWeight: FontWeight.w800),
+        ),
+      );
+      start = match.end;
+    }
+    if (start < sentence.length) {
+      spans.add(TextSpan(text: sentence.substring(start)));
+    }
+    return TextSpan(children: spans);
+  }
+
   Widget _ratingButton(
     String label,
     int rating,
     Duration interval,
     Color color,
-  ) {
-    return FilledButton(
-      style: FilledButton.styleFrom(backgroundColor: color),
-      onPressed: _saving ? null : () => _rate(rating),
-      child: Text('$label (${_formatInterval(interval)})'),
-    );
-  }
+  ) => FilledButton(
+    style: FilledButton.styleFrom(backgroundColor: color),
+    onPressed: _saving ? null : () => _rate(rating),
+    child: Text('$label (${_formatInterval(interval)})'),
+  );
 
   String _formatInterval(Duration value) {
     if (value.inMinutes < 60) return '${value.inMinutes}m';
