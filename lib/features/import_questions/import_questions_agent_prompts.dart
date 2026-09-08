@@ -70,9 +70,15 @@ Analyze ONLY TOEIC Listening Part 2 (Question-Response).
 OUTPUT CONSTRAINT: Output ONLY one raw JSON object. No markdown, no code fences, no explanations.
 TRANSLATION TARGET LANGUAGE: Vietnamese (vn)
 
-The attached transcript pages are Part 2 audio transcript pages. The fixed context text is provided separately.
+CARDINAL STRUCTURAL RULES:
+1. Extract all questions from Question 11 to Question 40.
+2. The root "contexts" array MUST contain exactly ONE element per question (e.g., 30 context objects for questions 11 through 40).
+3. EVERY context object in "contexts" must have:
+   - "id": "p2_q{question_number}" (e.g., "p2_q11", "p2_q12", ..., "p2_q40")
+   - "context_type": "STANDALONE"
+   - "questions": An array containing EXACTLY ONE question object (length = 1). NEVER put multiple questions in one context object.
 
-Return this schema:
+Return strictly this JSON structure format:
 {
   "contexts": [
     {
@@ -86,18 +92,31 @@ Return this schema:
         {
           "question_number": 11,
           "question_type": "MULTIPLE_CHOICE",
-          "content": "Spoken question or statement.",
+          "content": "Spoken question 11 text...",
           "options": ["Response A", "Response B", "Response C"],
-          "correct_answer": "Required get from answer sheet image",
+          "correct_answer": "Extract from answer key",
           "additional_meta": {
-              "note": "REQUIRED. Strictly format this field exactly as follows:
-[Translation of the question content stem into Vietnamese (vn)]
-[Translation of option 1 into Vietnamese (vn)]
-[Translation of option 2 into Vietnamese (vn)]
-[Translation of option 3 into Vietnamese (vn)]
-[Translation of option 4 into Vietnamese (vn) (if applicable)]
-
-[Detailed grammatical/contextual explanation in Vietnamese (vn) explaining why the correct_answer is right based on keywords from the transcript.]"
+            "note": "[Dịch câu hỏi Q11 sang tiếng Việt]\n[Dịch đáp án A]\n[Dịch đáp án B]\n[Dịch đáp án C]\n\n[Giải thích chi tiết ngữ pháp/ngữ cảnh bằng tiếng Việt]"
+          }
+        }
+      ]
+    },
+    {
+      "id": "p2_q12",
+      "part": 2,
+      "context_type": "STANDALONE",
+      "content": {"text": "Mark your answer on your answer sheet"},
+      "index": 1,
+      "additional_meta": {"audio_start": 0.0, "audio_end": 0.0, "note": ""},
+      "questions": [
+        {
+          "question_number": 12,
+          "question_type": "MULTIPLE_CHOICE",
+          "content": "Spoken question 12 text...",
+          "options": ["Response A", "Response B", "Response C"],
+          "correct_answer": "Extract from answer key",
+          "additional_meta": {
+            "note": "[Dịch câu hỏi Q12 sang tiếng Việt]\n[Dịch đáp án A]\n[Dịch đáp án B]\n[Dịch đáp án C]\n\n[Giải thích chi tiết ngữ pháp/ngữ cảnh bằng tiếng Việt]"
           }
         }
       ]
@@ -105,13 +124,6 @@ Return this schema:
   ]
 }
 
-STRICT PART 2 RULES:
-1. Every context_type must be STANDALONE
-2. MUST each context only has exactly 1 question, never 2 questions in 1 context.
-3. questions.content: Put the spoken Question/Statement here (e.g., "Where is the meeting room?").
-4. questions.options: Put the 3 spoken response choices (A, B, C) here,Stripped of prefixes like (A), B., C) and keep original order.
-5. Never leave questions.additional_meta.note empty, even when correct_answer is unknown.
-6. only take all questions from 11 to 40.
 ''';
 
   static const _part3 = r'''
