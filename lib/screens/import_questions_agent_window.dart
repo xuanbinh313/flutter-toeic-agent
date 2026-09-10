@@ -29,6 +29,12 @@ class _ImportQuestionsAgentWindowState
   void initState() {
     super.initState();
     _service = ImportQuestionsAgentService(widget.examId);
+    _restoreRequests();
+  }
+
+  Future<void> _restoreRequests() async {
+    await _service.loadRequests();
+    if (mounted) setState(() {});
   }
 
   Future<void> _pickAnswerSheet(bool listening) async {
@@ -207,6 +213,7 @@ class _ImportQuestionsAgentWindowState
     controller.dispose();
     if (saved != null && saved.trim().isNotEmpty) {
       setState(() => part.prompt = saved.trim());
+      await _service.saveRequests();
     }
   }
 
@@ -221,7 +228,14 @@ class _ImportQuestionsAgentWindowState
         },
       );
       if (mounted) {
-        _showMessage('Import complete. Groups and questions were saved.');
+        final saved = _service.requests.isEmpty
+            ? ''
+            : _service.requests.last.responsePath;
+        _showMessage(
+          saved.isEmpty
+              ? 'Import complete. Groups and questions were saved.'
+              : 'Import complete. Response saved to: $saved',
+        );
       }
     } catch (error) {
       if (mounted) {
@@ -235,6 +249,7 @@ class _ImportQuestionsAgentWindowState
   }
 
   Future<void> _showRequests() async {
+    var retryingAll = false;
     await showDialog<void>(
       context: context,
       builder: (context) => StatefulBuilder(
@@ -242,17 +257,20 @@ class _ImportQuestionsAgentWindowState
           title: const Text('Agent requests'),
           content: SizedBox(
             width: 820,
+            height: 500,
             child: _service.requests.isEmpty
                 ? const Text('No agent requests yet.')
                 : SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: DataTable(
+                    child: SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: DataTable(
                       columns: const [
                         DataColumn(label: Text('Part')),
                         DataColumn(label: Text('Created')),
                         DataColumn(label: Text('Status')),
                         DataColumn(label: Text('Attempts')),
                         DataColumn(label: Text('Error')),
+                        DataColumn(label: Text('Response JSON')),
                         DataColumn(label: Text('Actions')),
                       ],
                       rows: _service.requests
@@ -275,6 +293,15 @@ class _ImportQuestionsAgentWindowState
                                     width: 220,
                                     child: Text(
                                       request.error,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                ),
+                                DataCell(
+                                  SizedBox(
+                                    width: 260,
+                                    child: Text(
+                                      request.responsePath,
                                       overflow: TextOverflow.ellipsis,
                                     ),
                                   ),
@@ -330,6 +357,7 @@ class _ImportQuestionsAgentWindowState
                                                 _service.requests.remove(
                                                   request,
                                                 );
+                                                _service.saveRequests();
                                                 refresh(() {});
                                               },
                                       ),
@@ -340,10 +368,49 @@ class _ImportQuestionsAgentWindowState
                             ),
                           )
                           .toList(),
+                      ),
                     ),
                   ),
           ),
           actions: [
+            FilledButton.icon(
+              onPressed: retryingAll ||
+                      !_service.requests.any(
+                        (request) => request.status != 'running',
+                      )
+                  ? null
+                  : () async {
+                      retryingAll = true;
+                      refresh(() {});
+                      for (final request in List<AgentRequest>.from(
+                        _service.requests,
+                      )) {
+                        if (request.status == 'running') continue;
+                        try {
+                          await _service.retry(
+                            request,
+                            onProgress: (message) {
+                              if (mounted) {
+                                setState(() => _progress = message);
+                              }
+                            },
+                          );
+                        } catch (_) {
+                          // Keep retrying the remaining requests.
+                        }
+                        refresh(() {});
+                      }
+                      retryingAll = false;
+                      refresh(() {});
+                    },
+              icon: retryingAll
+                  ? const SizedBox.square(
+                      dimension: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.refresh),
+              label: Text(retryingAll ? 'Retrying...' : 'Retry all'),
+            ),
             TextButton(
               onPressed: () => Navigator.pop(context),
               child: const Text('Close'),

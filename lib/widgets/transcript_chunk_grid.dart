@@ -225,21 +225,10 @@ class _TranscriptChunkGridState extends State<TranscriptChunkGrid> {
             icon: const Icon(Icons.remove_circle_outline),
           ),
           Expanded(
-            child: TextFormField(
-              key: ValueKey('$id-$field-$value'),
-              initialValue: value.toStringAsFixed(2),
-              keyboardType: const TextInputType.numberWithOptions(
-                decimal: true,
-              ),
-              textAlign: TextAlign.center,
-              decoration: const InputDecoration(
-                isDense: true,
-                border: InputBorder.none,
-              ),
-              onFieldSubmitted: (text) {
-                final changed = double.tryParse(text);
-                if (changed != null) _changeTime(context, id, field, changed);
-              },
+            child: _TimeEditor(
+              key: ValueKey('$id-$field'),
+              value: value,
+              onChanged: (changed) => _changeTime(context, id, field, changed),
             ),
           ),
           IconButton(
@@ -255,7 +244,7 @@ class _TranscriptChunkGridState extends State<TranscriptChunkGrid> {
     },
   );
 
-  void _changeTime(
+  double _changeTime(
     PlutoColumnRendererContext context,
     String id,
     String field,
@@ -267,6 +256,7 @@ class _TranscriptChunkGridState extends State<TranscriptChunkGrid> {
       updated,
       callOnChangedEvent: false,
     );
+    return updated;
   }
 
   Widget _bodyText(PlutoColumnRendererContext context) => Align(
@@ -302,4 +292,77 @@ class _TranscriptChunkGridState extends State<TranscriptChunkGrid> {
         onPressed: () => _runAction(id, action),
         icon: Icon(icon),
       );
+}
+
+class _TimeEditor extends StatefulWidget {
+  const _TimeEditor({super.key, required this.value, required this.onChanged});
+
+  final double value;
+  final double Function(double value) onChanged;
+
+  @override
+  State<_TimeEditor> createState() => _TimeEditorState();
+}
+
+class _TimeEditorState extends State<_TimeEditor> {
+  late final TextEditingController _controller;
+  late final FocusNode _focusNode;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: _format(widget.value));
+    _focusNode = FocusNode()..addListener(_onFocusChanged);
+  }
+
+  @override
+  void didUpdateWidget(covariant _TimeEditor oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.value != widget.value && !_focusNode.hasFocus) {
+      _setText(widget.value);
+    }
+  }
+
+  static String _format(double value) => value.toStringAsFixed(2);
+
+  void _setText(double value) {
+    final text = _format(value);
+    _controller.value = TextEditingValue(
+      text: text,
+      selection: TextSelection.collapsed(offset: text.length),
+    );
+  }
+
+  void _onFocusChanged() {
+    if (!_focusNode.hasFocus) _commit();
+  }
+
+  void _commit() {
+    final changed = double.tryParse(_controller.text.trim());
+    if (changed == null) {
+      _setText(widget.value);
+      return;
+    }
+    _setText(widget.onChanged(changed));
+  }
+
+  @override
+  Widget build(BuildContext context) => TextField(
+    controller: _controller,
+    focusNode: _focusNode,
+    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+    textAlign: TextAlign.center,
+    decoration: const InputDecoration(isDense: true, border: InputBorder.none),
+    onSubmitted: (_) => _commit(),
+    onEditingComplete: _commit,
+  );
+
+  @override
+  void dispose() {
+    _focusNode
+      ..removeListener(_onFocusChanged)
+      ..dispose();
+    _controller.dispose();
+    super.dispose();
+  }
 }

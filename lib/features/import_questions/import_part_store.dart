@@ -26,20 +26,43 @@ class ImportPartStore {
     for (var index = 0; index < contexts.length; index++) {
       final context = contexts[index];
       final questions = context['questions'];
-      if (questions is! List || questions.isEmpty) {
-        throw const FormatException('Every imported context needs questions.');
+      if (questions is! List) {
+        throw const FormatException('Context questions must be an array.');
       }
-      final id = newUuid();
-      final content = context['content'];
+      final firstQuestion = questions.isEmpty ? null : questions.first;
+      final questionContext =
+          firstQuestion is Map && firstQuestion['context'] is Map
+          ? Map<String, dynamic>.from(firstQuestion['context'] as Map)
+          : const <String, dynamic>{};
+      final firstQuestionId = firstQuestion is Map
+          ? firstQuestion['context_id'] ?? firstQuestion['contextId']
+          : null;
+      final responseId =
+          context['context_id'] ?? context['id'] ?? firstQuestionId;
+      final id = responseId is String && responseId.isNotEmpty
+          ? responseId
+          : newUuid();
+      final content =
+          context['content'] ??
+          questionContext['content'] ??
+          (firstQuestion is Map ? firstQuestion['context_content'] : null);
       contextRows.add({
         'id': id,
         'exam_id': examId,
         'part': part,
-        'context_type': '${context['context_type'] ?? 'STANDALONE'}'
-            .toUpperCase(),
+        'context_type':
+            '${context['context_type'] ?? questionContext['context_type'] ?? (firstQuestion is Map ? firstQuestion['context_type'] : null) ?? 'STANDALONE'}'
+                .toUpperCase(),
         'content': jsonEncode(content is Map ? content : {'text': '$content'}),
         'index': index,
-        'additional_meta': jsonEncode(context['additional_meta'] ?? {}),
+        'additional_meta': jsonEncode(
+          context['additional_meta'] ??
+              questionContext['additional_meta'] ??
+              (firstQuestion is Map
+                  ? firstQuestion['context_additional_meta']
+                  : null) ??
+              {},
+        ),
         'created_at': now,
         'updated_at': now,
         'dirty': 1,
@@ -95,6 +118,23 @@ class ImportPartStore {
       ''',
         [examId, part],
       );
+      final otherPartNumbers = await tx.rawQuery(
+        '''SELECT q.question_number FROM exam_questions q
+           JOIN exam_contexts c ON c.id = q.context_id
+           WHERE c.exam_id = ? AND c.part != ?''',
+        [examId, part],
+      );
+      final importedNumbers = questionRows
+          .map((question) => question['question_number'])
+          .toSet();
+      if (importedNumbers.length != questionRows.length ||
+          otherPartNumbers.any(
+            (row) => importedNumbers.contains(row['question_number']),
+          )) {
+        throw const FormatException(
+          'Question numbers must be unique across the exam.',
+        );
+      }
       final usedContexts = <Object?>{};
       final usedQuestions = <Object?>{};
       for (final row in contextRows) {
@@ -119,7 +159,8 @@ class ImportPartStore {
         for (final child in children) {
           child['context_id'] = row['id'];
           for (final old in oldQuestions) {
-            if (old['question_number'] == child['question_number'] &&
+            if (old['context_id'] == row['id'] &&
+                old['question_number'] == child['question_number'] &&
                 !usedQuestions.contains(old['id'])) {
               child['id'] = old['id'];
               child['created_at'] = old['created_at'] ?? now;
@@ -128,8 +169,27 @@ class ImportPartStore {
             }
           }
         }
-        await _save(tx, 'exam_contexts', row, usedContexts.contains(row['id']));
+        if (children.isEmpty) {
+          await tx.delete(
+            'user_question_tags',
+            where: 'context_id = ?',
+            whereArgs: [row['id']],
+          );
+          await tx.delete(
+            'exam_contexts',
+            where: 'id = ? AND exam_id = ?',
+            whereArgs: [row['id'], examId],
+          );
+        } else {
+          await _save(
+            tx,
+            'exam_contexts',
+            row,
+            usedContexts.contains(row['id']),
+          );
+        }
       }
+      // Questions are replaced by context_id, never merged by question number.
       for (final row in questionRows) {
         await _save(
           tx,
@@ -160,6 +220,25 @@ class ImportPartStore {
             whereArgs: [old['id']],
           );
         }
+      }
+      final emptyContexts = await tx.rawQuery(
+        '''SELECT c.id FROM exam_contexts c
+           WHERE c.exam_id = ? AND NOT EXISTS (
+             SELECT 1 FROM exam_questions q WHERE q.context_id = c.id
+           )''',
+        [examId],
+      );
+      for (final context in emptyContexts) {
+        await tx.delete(
+          'user_question_tags',
+          where: 'context_id = ?',
+          whereArgs: [context['id']],
+        );
+        await tx.delete(
+          'exam_contexts',
+          where: 'id = ?',
+          whereArgs: [context['id']],
+        );
       }
       await tx.update(
         'exams',

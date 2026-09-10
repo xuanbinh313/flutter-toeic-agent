@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart';
 import 'package:google_generative_ai/google_generative_ai.dart';
 import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
@@ -12,6 +12,7 @@ import '../features/import_questions/import_questions_agent_prompts.dart';
 import '../features/import_questions/import_part_store.dart';
 import 'local_database.dart';
 import 'part_one_image_splitter.dart';
+import 'uuid.dart';
 
 class ImportPartInput {
   ImportPartInput(this.part) {
@@ -42,14 +43,22 @@ class OverallPdfSource {
 }
 
 class AgentRequest {
-  AgentRequest({required this.part, required this.prompt});
+  AgentRequest({
+    String? id,
+    required this.part,
+    required this.prompt,
+    DateTime? createdAt,
+  }) : id = id ?? newUuid(),
+       createdAt = createdAt ?? DateTime.now();
 
+  final String id;
   final int part;
   String prompt;
   String status = 'queued';
   String error = '';
   int attempts = 0;
-  final DateTime createdAt = DateTime.now();
+  String responsePath = '';
+  final DateTime createdAt;
 }
 
 class ImportQuestionsAgentService {
@@ -73,6 +82,115 @@ class ImportQuestionsAgentService {
 
   static String defaultPrompt(int part) =>
       ImportQuestionsAgentPrompts.forPart(part);
+
+  Future<void> loadRequests() async {
+    final db = await LocalDatabase.instance.database;
+    final rows = await db.query(
+      'agent_requests',
+      where: 'exam_id = ?',
+      whereArgs: [examId],
+      orderBy: 'created_at ASC',
+    );
+    if (rows.isNotEmpty) {
+      _setRequests(rows);
+      return;
+    }
+    // Migrate the previous local JSON index once, if it exists.
+    try {
+      final file = await _requestsFile();
+      if (!await file.exists()) return;
+      final decoded = jsonDecode(await file.readAsString());
+      if (decoded is! List) return;
+      requests
+        ..clear()
+        ..addAll(
+          decoded.whereType<Map>().map((value) {
+            final request = AgentRequest(
+              id: '${value['id'] ?? ''}'.isEmpty ? null : '${value['id']}',
+              part: (value['part'] as num?)?.toInt() ?? 1,
+              prompt: '${value['prompt'] ?? ''}',
+              createdAt: DateTime.tryParse('${value['createdAt']}'),
+            );
+            request
+              ..status = '${value['status'] ?? 'queued'}'
+              ..error = '${value['error'] ?? ''}'
+              ..attempts = (value['attempts'] as num?)?.toInt() ?? 0
+              ..responsePath = kDebugMode
+                  ? '${value['responsePath'] ?? ''}'
+                  : '';
+            if (request.status == 'running') {
+              request
+                ..status = 'failed'
+                ..error = 'Request was interrupted before completion.';
+            }
+            return request;
+          }),
+        );
+      await saveRequests();
+    } catch (_) {
+      // A missing/corrupt request index must not prevent importing.
+    }
+  }
+
+  Future<void> saveRequests() async {
+    final db = await LocalDatabase.instance.database;
+    final now = DateTime.now().toUtc().toIso8601String();
+    await db.transaction((tx) async {
+      await tx.delete(
+        'agent_requests',
+        where: 'exam_id = ?',
+        whereArgs: [examId],
+      );
+      for (final request in requests) {
+        await tx.insert('agent_requests', {
+          'id': request.id,
+          'exam_id': examId,
+          'part': request.part,
+          'prompt': request.prompt,
+          'status': request.status,
+          'error': request.error,
+          'attempts': request.attempts,
+          'response_path': request.responsePath,
+          'created_at': request.createdAt.toUtc().toIso8601String(),
+          'updated_at': now,
+        });
+      }
+    });
+  }
+
+  void _setRequests(List<Map<String, Object?>> rows) {
+    requests
+      ..clear()
+      ..addAll(
+        rows.map((value) {
+          final request = AgentRequest(
+            id: '${value['id']}',
+            part: (value['part'] as num?)?.toInt() ?? 1,
+            prompt: '${value['prompt'] ?? ''}',
+            createdAt: DateTime.tryParse('${value['created_at']}'),
+          );
+          request
+            ..status = '${value['status'] ?? 'queued'}'
+            ..error = '${value['error'] ?? ''}'
+            ..attempts = (value['attempts'] as num?)?.toInt() ?? 0
+            ..responsePath = kDebugMode
+                ? '${value['response_path'] ?? ''}'
+                : '';
+          if (request.status == 'running') {
+            request
+              ..status = 'failed'
+              ..error = 'Request was interrupted before completion.';
+          }
+          return request;
+        }),
+      );
+  }
+
+  Future<File> _requestsFile() async {
+    final directory = await getApplicationSupportDirectory();
+    final safeExamId = examId.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');
+    return File(path.join(directory.path, 'agent_requests_$safeExamId.json'));
+  }
 
   Future<String> prepareOverallSourcePdf({
     required String section,
@@ -132,6 +250,7 @@ class ImportQuestionsAgentService {
     for (final input in selected) {
       final request = AgentRequest(part: input.part, prompt: input.prompt);
       requests.add(request);
+      await saveRequests();
       await _runRequest(request, input, onProgress: onProgress);
     }
   }
@@ -154,6 +273,7 @@ class ImportQuestionsAgentService {
     request.status = 'running';
     request.error = '';
     request.attempts++;
+    await saveRequests();
     onProgress?.call('Preparing Part ${input.part}...');
     try {
       final partOneImages =
@@ -202,18 +322,75 @@ class ImportQuestionsAgentService {
       if (text == null || text.trim().isEmpty) {
         throw StateError('Gemini returned an empty response.');
       }
+      if (kDebugMode) {
+        request.responsePath = await _saveAgentResponse(input.part, text);
+        onProgress?.call('Saved raw agent response: ${request.responsePath}');
+      }
       final contexts = _parseContexts(text, input.part);
       _applyPartOneImages(contexts, partOneImages);
       await ImportPartStore(
         await LocalDatabase.instance.database,
       ).replace(examId: examId, part: input.part, contexts: contexts);
       request.status = 'succeeded';
+      await saveRequests();
       onProgress?.call('Replaced Part ${input.part} groups and questions.');
     } catch (error) {
       request.status = 'failed';
       request.error = '$error';
+      await saveRequests();
       rethrow;
     }
+  }
+
+  Future<String> _saveAgentResponse(int part, String response) async {
+    final timestamp = DateTime.now().toUtc().toIso8601String().replaceAll(
+      RegExp(r'[^0-9]'),
+      '',
+    );
+    final filename =
+        'exam_${examId.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_')}'
+        '_part_${part}_$timestamp.json';
+    final cleaned = response
+        .replaceAll(RegExp(r'^```(?:json)?\s*|\s*```$', multiLine: true), '')
+        .trim();
+    Object jsonValue = cleaned;
+    try {
+      jsonValue = jsonDecode(cleaned);
+    } on FormatException {
+      // Keep the raw response available even when it is not valid JSON.
+    }
+    final contents = jsonValue is String
+        ? jsonValue
+        : const JsonEncoder.withIndent('  ').convert(jsonValue);
+    final locations = <String>[];
+    for (final directoryProvider in <Future<Directory> Function()>[
+      getApplicationSupportDirectory,
+      getApplicationDocumentsDirectory,
+    ]) {
+      try {
+        final directory = await directoryProvider();
+        locations.add(path.join(directory.path, 'agent_responses', filename));
+      } catch (_) {
+        // Try the next writable location.
+      }
+    }
+    // Useful for development and portable builds; production normally uses
+    // one of the OS-managed writable directories above.
+    locations.add(
+      path.join(Directory.current.path, 'agent_responses', filename),
+    );
+    Object? lastError;
+    for (final location in locations) {
+      try {
+        final file = File(location);
+        await file.parent.create(recursive: true);
+        await file.writeAsString(contents, flush: true);
+        return file.path;
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    throw StateError('Could not save agent response: $lastError');
   }
 
   String _promptFor(ImportPartInput input) =>

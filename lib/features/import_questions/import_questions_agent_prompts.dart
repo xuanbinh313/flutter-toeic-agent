@@ -149,7 +149,7 @@ Return this schema:
       "context_type": "AUDIO_SRT",
       "content": {"text": "Full conversation transcript for questions 41-43."},
       "index": 0,
-      "additional_meta": {"audio_start": 0.0, "audio_end": 0.0, "note": "REQUIRED. Vietnamese translation of the conversation."},
+      "additional_meta": {"audio_start": 0.0, "audio_end": 0.0, "note": "REQUIRED. Vietnamese translation of the transcript. not translate summary transcript."},
       "questions": [
         {
           "question_number": 41,
@@ -175,7 +175,7 @@ Return this schema:
 STRICT PART 3 RULES:
 1. Every context part must be 3.
 2. Every context_type must be AUDIO_SRT.
-3. Only take all questions from 41 to 70.
+3. MUST take all questions from 41 to 70.
 4. Questions sharing one conversation must be nested in the same context's questions array.
 5. Extract only Part 3 conversation questions.
 6. Preserve printed question numbers when visible.
@@ -235,7 +235,7 @@ Return this schema:
 STRICT PART 4 RULES:
 1. Every context part must be 4.
 2. Every context_type must be AUDIO_SRT.
-3. Only take all questions from 71 to 100.
+3. MUST take all questions from 71 to 100.
 4. Questions sharing one talk must be nested in the same context's questions array.
 5. Extract only Part 4 talk questions.
 6. Preserve printed question numbers when visible.

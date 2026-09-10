@@ -95,6 +95,12 @@ class LocalSchemaService {
       user_choice TEXT, is_correct INTEGER, created_at TEXT, updated_at TEXT,
       user_id TEXT, dirty INTEGER NOT NULL DEFAULT 1
     )''',
+    '''CREATE TABLE IF NOT EXISTS agent_requests (
+      id TEXT PRIMARY KEY, exam_id TEXT NOT NULL, part INTEGER NOT NULL,
+      prompt TEXT NOT NULL, status TEXT NOT NULL, error TEXT,
+      attempts INTEGER NOT NULL DEFAULT 0, response_path TEXT,
+      created_at TEXT NOT NULL, updated_at TEXT
+    )''',
     '''CREATE TABLE IF NOT EXISTS exam_srt_chunks (
       id TEXT PRIMARY KEY, exam_id TEXT NOT NULL, "index" INTEGER,
       start_time REAL, end_time REAL, text TEXT, hint TEXT, note TEXT,
