@@ -40,8 +40,18 @@ class _TranscriptChunkGridState extends State<TranscriptChunkGrid> {
         width: 55,
         enableEditingMode: false,
       ),
-      _timeColumn('Start', 'start'),
-      _timeColumn('End', 'end'),
+      PlutoColumn(
+        title: 'Start',
+        field: 'start',
+        type: PlutoColumnType.number(format: '#,##0.##'),
+        width: 145,
+      ),
+      PlutoColumn(
+        title: 'End',
+        field: 'end',
+        type: PlutoColumnType.number(format: '#,##0.##'),
+        width: 145,
+      ),
       PlutoColumn(
         title: 'Transcript',
         field: 'text',
@@ -132,6 +142,10 @@ class _TranscriptChunkGridState extends State<TranscriptChunkGrid> {
   ];
 
   Future<void> _runAction(String id, String action) async {
+    if (action == 'edit_time') {
+      await _editTime(id);
+      return;
+    }
     await widget.onAction(id, action);
     if (!mounted || !_changesRows(action)) return;
     _syncLoadedRows();
@@ -205,60 +219,6 @@ class _TranscriptChunkGridState extends State<TranscriptChunkGrid> {
     }
   }
 
-  PlutoColumn _timeColumn(String title, String field) => PlutoColumn(
-    title: title,
-    field: field,
-    type: PlutoColumnType.number(),
-    width: 145,
-    enableEditingMode: false,
-    renderer: (context) {
-      final id = context.row.cells['id']!.value as String;
-      final value = (context.cell.value as num).toDouble();
-      return Row(
-        children: [
-          IconButton(
-            iconSize: 17,
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints.tightFor(width: 30, height: 30),
-            tooltip: 'Decrease $title',
-            onPressed: () => _changeTime(context, id, field, value - .1),
-            icon: const Icon(Icons.remove_circle_outline),
-          ),
-          Expanded(
-            child: _TimeEditor(
-              key: ValueKey('$id-$field'),
-              value: value,
-              onChanged: (changed) => _changeTime(context, id, field, changed),
-            ),
-          ),
-          IconButton(
-            iconSize: 17,
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints.tightFor(width: 30, height: 30),
-            tooltip: 'Increase $title',
-            onPressed: () => _changeTime(context, id, field, value + .1),
-            icon: const Icon(Icons.add_circle_outline),
-          ),
-        ],
-      );
-    },
-  );
-
-  double _changeTime(
-    PlutoColumnRendererContext context,
-    String id,
-    String field,
-    double value,
-  ) {
-    final updated = widget.onTimeChanged(id, field, value);
-    context.stateManager.changeCellValue(
-      context.cell,
-      updated,
-      callOnChangedEvent: false,
-    );
-    return updated;
-  }
-
   Widget _bodyText(PlutoColumnRendererContext context) => Align(
     alignment: Alignment.centerLeft,
     child: Text(
@@ -273,6 +233,7 @@ class _TranscriptChunkGridState extends State<TranscriptChunkGrid> {
     final id = context.row.cells['id']!.value as String;
     return Row(
       children: [
+        _action(id, Icons.access_time, 'Edit time', 'edit_time'),
         _action(id, Icons.play_arrow, 'Play', 'play'),
         _action(id, Icons.repeat, 'Repeat', 'repeat'),
         _action(id, Icons.merge, 'Merge next', 'merge'),
@@ -292,77 +253,121 @@ class _TranscriptChunkGridState extends State<TranscriptChunkGrid> {
         onPressed: () => _runAction(id, action),
         icon: Icon(icon),
       );
+
+  Future<void> _editTime(String id) async {
+    final chunk = widget.chunks.firstWhere((chunk) => chunk.id == id);
+    final result = await showDialog<({double start, double end})>(
+      context: context,
+      builder: (context) =>
+          _TimeRangeDialog(start: chunk.start, end: chunk.end),
+    );
+    if (!mounted || result == null) return;
+
+    // Update End first so the parent validation can accept a larger Start.
+    final end = widget.onTimeChanged(id, 'end', result.end);
+    final start = widget.onTimeChanged(id, 'start', result.start);
+    final row = _stateManager?.refRows.originalList
+        .cast<PlutoRow?>()
+        .firstWhere((row) => row?.cells['id']?.value == id, orElse: () => null);
+    if (row == null) return;
+    _stateManager?.changeCellValue(row.cells['end']!, end, force: true);
+    _stateManager?.changeCellValue(row.cells['start']!, start, force: true);
+  }
 }
 
-class _TimeEditor extends StatefulWidget {
-  const _TimeEditor({super.key, required this.value, required this.onChanged});
+class _TimeRangeDialog extends StatefulWidget {
+  const _TimeRangeDialog({required this.start, required this.end});
 
-  final double value;
-  final double Function(double value) onChanged;
+  final double start;
+  final double end;
 
   @override
-  State<_TimeEditor> createState() => _TimeEditorState();
+  State<_TimeRangeDialog> createState() => _TimeRangeDialogState();
 }
 
-class _TimeEditorState extends State<_TimeEditor> {
-  late final TextEditingController _controller;
-  late final FocusNode _focusNode;
+class _TimeRangeDialogState extends State<_TimeRangeDialog> {
+  late final TextEditingController _startController;
+  late final TextEditingController _endController;
+  String? _error;
 
   @override
   void initState() {
     super.initState();
-    _controller = TextEditingController(text: _format(widget.value));
-    _focusNode = FocusNode()..addListener(_onFocusChanged);
+    _startController = TextEditingController(text: widget.start.toString());
+    _endController = TextEditingController(text: widget.end.toString());
   }
 
-  @override
-  void didUpdateWidget(covariant _TimeEditor oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.value != widget.value && !_focusNode.hasFocus) {
-      _setText(widget.value);
+  void _save() {
+    final start = double.tryParse(_startController.text.trim());
+    final end = double.tryParse(_endController.text.trim());
+    if (start == null || end == null || start < 0 || end < start) {
+      setState(() => _error = 'Enter valid times where End is at least Start.');
+      return;
     }
+    Navigator.of(context).pop((start: start, end: end));
   }
 
-  static String _format(double value) => value.toStringAsFixed(2);
-
-  void _setText(double value) {
-    final text = _format(value);
-    _controller.value = TextEditingValue(
+  void _adjust(TextEditingController controller, double amount) {
+    final value = double.tryParse(controller.text.trim()) ?? 0;
+    final updated = value + amount;
+    final text = updated.toStringAsFixed(2);
+    controller.value = TextEditingValue(
       text: text,
       selection: TextSelection.collapsed(offset: text.length),
     );
+    setState(() => _error = null);
   }
 
-  void _onFocusChanged() {
-    if (!_focusNode.hasFocus) _commit();
-  }
-
-  void _commit() {
-    final changed = double.tryParse(_controller.text.trim());
-    if (changed == null) {
-      _setText(widget.value);
-      return;
-    }
-    _setText(widget.onChanged(changed));
-  }
+  Widget _timeField(String label, TextEditingController controller) => Row(
+    children: [
+      IconButton(
+        tooltip: 'Decrease $label by 0.1 seconds',
+        onPressed: () => _adjust(controller, -0.1),
+        icon: const Icon(Icons.remove_circle_outline),
+      ),
+      Expanded(
+        child: TextField(
+          controller: controller,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          decoration: InputDecoration(labelText: label),
+        ),
+      ),
+      IconButton(
+        tooltip: 'Increase $label by 0.1 seconds',
+        onPressed: () => _adjust(controller, 0.1),
+        icon: const Icon(Icons.add_circle_outline),
+      ),
+    ],
+  );
 
   @override
-  Widget build(BuildContext context) => TextField(
-    controller: _controller,
-    focusNode: _focusNode,
-    keyboardType: const TextInputType.numberWithOptions(decimal: true),
-    textAlign: TextAlign.center,
-    decoration: const InputDecoration(isDense: true, border: InputBorder.none),
-    onSubmitted: (_) => _commit(),
-    onEditingComplete: _commit,
+  Widget build(BuildContext context) => AlertDialog(
+    title: const Text('Edit time'),
+    content: Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _timeField('Start', _startController),
+        _timeField('End', _endController),
+        if (_error != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Text(_error!, style: TextStyle(color: Colors.red.shade700)),
+          ),
+      ],
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.of(context).pop(),
+        child: const Text('Cancel'),
+      ),
+      FilledButton(onPressed: _save, child: const Text('Save')),
+    ],
   );
 
   @override
   void dispose() {
-    _focusNode
-      ..removeListener(_onFocusChanged)
-      ..dispose();
-    _controller.dispose();
+    _startController.dispose();
+    _endController.dispose();
     super.dispose();
   }
 }

@@ -22,6 +22,8 @@ class ImportQuestionsAgentWindow extends StatefulWidget {
 class _ImportQuestionsAgentWindowState
     extends State<ImportQuestionsAgentWindow> {
   late final ImportQuestionsAgentService _service;
+  final _requestsScrollController = ScrollController();
+  final _requestsHorizontalScrollController = ScrollController();
   bool _loading = false;
   String _progress = '';
 
@@ -260,121 +262,145 @@ class _ImportQuestionsAgentWindowState
             height: 500,
             child: _service.requests.isEmpty
                 ? const Text('No agent requests yet.')
-                : SingleChildScrollView(
+                : Scrollbar(
+                    controller: _requestsScrollController,
+                    thumbVisibility: true,
                     child: SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: DataTable(
-                      columns: const [
-                        DataColumn(label: Text('Part')),
-                        DataColumn(label: Text('Created')),
-                        DataColumn(label: Text('Status')),
-                        DataColumn(label: Text('Attempts')),
-                        DataColumn(label: Text('Error')),
-                        DataColumn(label: Text('Response JSON')),
-                        DataColumn(label: Text('Actions')),
-                      ],
-                      rows: _service.requests
-                          .map(
-                            (request) => DataRow(
-                              cells: [
-                                DataCell(Text('${request.part}')),
-                                DataCell(
-                                  Text(
-                                    request.createdAt
-                                        .toLocal()
-                                        .toString()
-                                        .substring(0, 19),
-                                  ),
-                                ),
-                                DataCell(Text(request.status)),
-                                DataCell(Text('${request.attempts}')),
-                                DataCell(
-                                  SizedBox(
-                                    width: 220,
-                                    child: Text(
-                                      request.error,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                  ),
-                                ),
-                                DataCell(
-                                  SizedBox(
-                                    width: 260,
-                                    child: Text(
-                                      request.responsePath,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                  ),
-                                ),
-                                DataCell(
-                                  Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      IconButton(
-                                        tooltip: 'Edit request prompt',
-                                        icon: const Icon(Icons.edit_outlined),
-                                        onPressed: request.status == 'running'
-                                            ? null
-                                            : () async {
-                                                await _editPrompt(
-                                                  _service.parts[request.part -
-                                                      1],
-                                                );
-                                                request.prompt = _service
-                                                    .parts[request.part - 1]
-                                                    .prompt;
-                                                refresh(() {});
-                                              },
-                                      ),
-                                      IconButton(
-                                        tooltip: 'Retry request',
-                                        icon: const Icon(Icons.refresh),
-                                        onPressed: request.status == 'running'
-                                            ? null
-                                            : () async {
-                                                try {
-                                                  await _service.retry(
-                                                    request,
-                                                    onProgress: (message) {
-                                                      if (mounted) {
-                                                        setState(
-                                                          () => _progress =
-                                                              message,
-                                                        );
-                                                      }
-                                                    },
-                                                  );
-                                                } catch (_) {}
-                                                refresh(() {});
-                                              },
-                                      ),
-                                      IconButton(
-                                        tooltip: 'Remove request',
-                                        icon: const Icon(Icons.delete_outline),
-                                        onPressed: request.status == 'running'
-                                            ? null
-                                            : () {
-                                                _service.requests.remove(
-                                                  request,
-                                                );
-                                                _service.saveRequests();
-                                                refresh(() {});
-                                              },
-                                      ),
-                                    ],
-                                  ),
-                                ),
+                      controller: _requestsScrollController,
+                      child: Scrollbar(
+                        controller: _requestsHorizontalScrollController,
+                        thumbVisibility: true,
+                        child: SingleChildScrollView(
+                          controller: _requestsHorizontalScrollController,
+                          scrollDirection: Axis.horizontal,
+                          child: ConstrainedBox(
+                            constraints: const BoxConstraints(minWidth: 1100),
+                            child: DataTable(
+                              columns: const [
+                                DataColumn(label: Text('Part')),
+                                // DataColumn(label: Text('Created')),
+                                DataColumn(label: Text('Status')),
+                                DataColumn(label: Text('Attempts')),
+                                DataColumn(label: Text('Error')),
+                                // DataColumn(label: Text('Response JSON')),
+                                DataColumn(label: Text('Actions')),
                               ],
+                              rows: _service.requests
+                                  .map(
+                                    (request) => DataRow(
+                                      cells: [
+                                        DataCell(Text('${request.part}')),
+                                        // DataCell(
+                                        //   Text(
+                                        //     request.createdAt
+                                        //         .toLocal()
+                                        //         .toString()
+                                        //         .substring(0, 19),
+                                        //   ),
+                                        // ),
+                                        DataCell(Text(request.status)),
+                                        DataCell(Text('${request.attempts}')),
+                                        DataCell(
+                                          SizedBox(
+                                            width: 220,
+                                            child: Text(
+                                              request.error,
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                          ),
+                                        ),
+                                        // DataCell(
+                                        //   SizedBox(
+                                        //     width: 260,
+                                        //     child: Text(
+                                        //       request.responsePath,
+                                        //       overflow: TextOverflow.ellipsis,
+                                        //     ),
+                                        //   ),
+                                        // ),
+                                        DataCell(
+                                          Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              IconButton(
+                                                tooltip: 'Edit request prompt',
+                                                icon: const Icon(
+                                                  Icons.edit_outlined,
+                                                ),
+                                                onPressed:
+                                                    request.status == 'running'
+                                                    ? null
+                                                    : () async {
+                                                        await _editPrompt(
+                                                          _service.parts[request
+                                                                  .part -
+                                                              1],
+                                                        );
+                                                        request.prompt =
+                                                            _service
+                                                                .parts[request
+                                                                        .part -
+                                                                    1]
+                                                                .prompt;
+                                                        refresh(() {});
+                                                      },
+                                              ),
+                                              OutlinedButton.icon(
+                                                icon: const Icon(Icons.refresh),
+                                                label: const Text('Retry'),
+                                                onPressed:
+                                                    request.status == 'running'
+                                                    ? null
+                                                    : () async {
+                                                        try {
+                                                          await _service.retry(
+                                                            request,
+                                                            onProgress: (message) {
+                                                              if (mounted) {
+                                                                setState(
+                                                                  () => _progress =
+                                                                      message,
+                                                                );
+                                                              }
+                                                            },
+                                                          );
+                                                        } catch (_) {}
+                                                        refresh(() {});
+                                                      },
+                                              ),
+                                              IconButton(
+                                                tooltip: 'Remove request',
+                                                icon: const Icon(
+                                                  Icons.delete_outline,
+                                                ),
+                                                onPressed:
+                                                    request.status == 'running'
+                                                    ? null
+                                                    : () {
+                                                        _service.requests
+                                                            .remove(request);
+                                                        _service.saveRequests();
+                                                        refresh(() {});
+                                                      },
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  )
+                                  .toList(),
                             ),
-                          )
-                          .toList(),
+                          ),
+                        ),
                       ),
                     ),
                   ),
           ),
           actions: [
             FilledButton.icon(
-              onPressed: retryingAll ||
+              onPressed:
+                  retryingAll ||
                       !_service.requests.any(
                         (request) => request.status != 'running',
                       )
@@ -419,6 +445,13 @@ class _ImportQuestionsAgentWindowState
         ),
       ),
     );
+  }
+
+  @override
+  void dispose() {
+    _requestsScrollController.dispose();
+    _requestsHorizontalScrollController.dispose();
+    super.dispose();
   }
 
   void _showMessage(String message) => ScaffoldMessenger.of(
