@@ -57,7 +57,47 @@ class _VocabularySelectableTextState extends State<VocabularySelectableText> {
     }
   }
 
-  @override
+  Future<void> _showAddVocabularyDialog(String selectedText) async {
+    final controller = TextEditingController(text: selectedText);
+    controller.selection = TextSelection(
+      baseOffset: 0,
+      extentOffset: controller.text.length,
+    );
+
+    final vocabularyText = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Add vocabulary'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          maxLines: null,
+          textInputAction: TextInputAction.done,
+          decoration: const InputDecoration(
+            labelText: 'Vocabulary item',
+            border: OutlineInputBorder(),
+          ),
+          onSubmitted: (value) => Navigator.of(dialogContext).pop(value),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(controller.text),
+            child: const Text('Add'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+
+    if (vocabularyText != null) {
+      await _addVocabulary(vocabularyText.trim());
+    }
+  }
+
   @override
   Widget build(BuildContext context) => SelectableText(
     widget.text,
@@ -72,7 +112,7 @@ class _VocabularySelectableTextState extends State<VocabularySelectableText> {
             label: 'Add vocab',
             onPressed: () {
               ContextMenuController.removeAny();
-              _addVocabulary(selectedText);
+              _showAddVocabularyDialog(selectedText);
             },
           ),
         ...editableTextState.contextMenuButtonItems,
