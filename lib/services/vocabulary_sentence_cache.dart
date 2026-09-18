@@ -8,7 +8,7 @@ class VocabularySentenceCache {
 
   static Future<bool> wasGeneratedToday() async {
     final rows = await (await LocalDatabase.instance.database).query(
-      'config',
+      'configs',
       columns: ['value'],
       where: 'key_name = ?',
       whereArgs: [_key],
@@ -22,7 +22,7 @@ class VocabularySentenceCache {
     final db = await LocalDatabase.instance.database;
     final now = DateTime.now().toUtc().toIso8601String();
     final rows = await db.query(
-      'config',
+      'configs',
       columns: ['id'],
       where: 'key_name = ?',
       whereArgs: [_key],
@@ -30,7 +30,7 @@ class VocabularySentenceCache {
       limit: 1,
     );
     if (rows.isEmpty) {
-      await db.insert('config', {
+      await db.insert('configs', {
         'id': newUuid(),
         'key_name': _key,
         'value': _today(),
@@ -41,7 +41,7 @@ class VocabularySentenceCache {
       return;
     }
     await db.update(
-      'config',
+      'configs',
       {'value': _today(), 'updated_at': now, 'dirty': 1},
       where: 'id = ?',
       whereArgs: [rows.first['id']],

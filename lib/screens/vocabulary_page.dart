@@ -259,8 +259,10 @@ class _VocabularyPageState extends State<VocabularyPage> {
   }
 
   Future<void> _startSentenceReview() async {
-    final cards = VocabularyScheduler.nextCards(widget.words);
-    if (cards.isEmpty) {
+    // Generate one fresh sentence per word that needs review today. The
+    // cache below still limits the AI request to once per calendar day.
+    final dueWords = widget.words.where((word) => word.isDue).toList();
+    if (dueWords.isEmpty) {
       _showMessage('No vocabulary is due right now.');
       return;
     }
@@ -269,10 +271,10 @@ class _VocabularyPageState extends State<VocabularyPage> {
     try {
       if (!await VocabularySentenceCache.wasGeneratedToday()) {
         final sentences = await const VocabularySentenceService().generate(
-          cards,
+          dueWords,
         );
         await VocabularyReviewStore.saveSentences(sentences);
-        for (final word in cards) {
+        for (final word in dueWords) {
           final generated = sentences[word.id];
           if (generated != null) {
             word.sentence = generated.sentence;
@@ -281,7 +283,7 @@ class _VocabularyPageState extends State<VocabularyPage> {
         }
         await VocabularySentenceCache.markGeneratedToday();
       }
-      final reviewCards = cards
+      final reviewCards = dueWords
           .where(
             (word) =>
                 word.sentence.trim().isNotEmpty &&

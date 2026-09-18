@@ -22,7 +22,7 @@ class SyncService {
     'vocabulary',
     'exam_attempts',
     'user_answers',
-    'config',
+    'configs',
   ];
   // The deployed JunEdu Supabase schema predates this local-only field.
   static const _unsupportedRemoteColumns = {
@@ -223,12 +223,25 @@ class SyncService {
         payload.remove(column);
       }
       if (table == 'vocabulary') {
+        _normalizeVocabularySchedule(payload);
         // Supabase requires a JSON object here. SQLite stores JSON as text,
         // and older rows may not have the column yet.
         payload['data'] = _jsonObject(payload['data']);
       }
       return payload;
     }).toList();
+  }
+
+  /// New local vocabulary entries are intentionally unscheduled and therefore
+  /// store nulls. The remote schema represents that same state with its
+  /// required-column defaults.
+  void _normalizeVocabularySchedule(Map<String, Object?> payload) {
+    payload['stability'] ??= 0.0;
+    payload['difficulty'] ??= 0.0;
+    payload['reps'] ??= 0;
+    payload['lapses'] ??= 0;
+    payload['state'] ??= 0;
+    payload['due_at'] ??= DateTime.now().toUtc().toIso8601String();
   }
 
   Map<String, Object?> _jsonObject(Object? value) {

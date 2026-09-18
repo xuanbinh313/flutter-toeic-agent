@@ -4,11 +4,34 @@ class LocalSchemaService {
   LocalSchemaService._();
 
   static Future<void> ensure(Database db) async {
+    await _migrateConfigTable(db);
     for (final statement in _statements) {
       await db.execute(statement);
     }
     await ensureColumns(db, 'vocabulary', _vocabularyColumns);
     await _ensureVocabularyData(db);
+  }
+
+  /// Rename the legacy singular table so local storage matches Supabase.
+  /// Databases created during a partial migration are merged into the new
+  /// table without discarding either table's rows.
+  static Future<void> _migrateConfigTable(Database db) async {
+    final tables = await db.rawQuery(
+      "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('config', 'configs')",
+    );
+    final names = tables.map((row) => row['name'] as String).toSet();
+    if (names.contains('config') && !names.contains('configs')) {
+      await db.execute('ALTER TABLE config RENAME TO configs');
+      return;
+    }
+    if (names.contains('config') && names.contains('configs')) {
+      await db.execute('''
+        INSERT OR IGNORE INTO configs
+          (id, key_name, value, created_at, updated_at, user_id, dirty)
+        SELECT id, key_name, value, created_at, updated_at, user_id, dirty
+        FROM config
+      ''');
+    }
   }
 
   /// The shared Supabase vocabulary table requires this JSON column. Older
@@ -112,7 +135,7 @@ class LocalSchemaService {
       is_deleted INTEGER NOT NULL DEFAULT 0, user_id TEXT, created_at TEXT NOT NULL,
       dirty INTEGER NOT NULL DEFAULT 1
     )''',
-    '''CREATE TABLE IF NOT EXISTS config (
+    '''CREATE TABLE IF NOT EXISTS configs (
       id TEXT PRIMARY KEY, key_name TEXT NOT NULL, value TEXT NOT NULL,
       created_at TEXT, updated_at TEXT, user_id TEXT,
       dirty INTEGER NOT NULL DEFAULT 1
