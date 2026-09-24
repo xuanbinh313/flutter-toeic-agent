@@ -436,6 +436,23 @@ class LocalDatabase {
     );
   }
 
+  Future<void> saveExamQuestion(ExamQuestion question) async {
+    final db = await database;
+    await db.update(
+      'exam_questions',
+      {
+        'question_type': question.type,
+        'content': question.content,
+        'options': jsonEncode(question.options),
+        'correct_answer': question.correctAnswer,
+        'additional_meta': jsonEncode({'note': question.note}),
+        'dirty': 1,
+      },
+      where: 'id = ?',
+      whereArgs: [question.id],
+    );
+  }
+
   Future<void> setContextTag(String contextId, String tag, bool enabled) async {
     final db = await database;
     if (enabled) {

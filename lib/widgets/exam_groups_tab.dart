@@ -454,9 +454,19 @@ class _ExamGroupsTabState extends State<ExamGroupsTab> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              'Question ${question.number}',
-              style: const TextStyle(fontWeight: FontWeight.bold),
+            Row(
+              children: [
+                Text(
+                  'Question ${question.number}',
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+                const Spacer(),
+                IconButton(
+                  tooltip: 'Edit question and options',
+                  onPressed: () => _editQuestion(question),
+                  icon: const Icon(Icons.edit_outlined),
+                ),
+              ],
             ),
             const SizedBox(height: 4),
             VocabularySelectableText(
@@ -495,4 +505,115 @@ class _ExamGroupsTabState extends State<ExamGroupsTab> {
       ),
     ),
   );
+
+  Future<void> _editQuestion(ExamQuestion question) async {
+    final content = TextEditingController(text: question.content);
+    final answer = TextEditingController(text: question.correctAnswer);
+    final note = TextEditingController(text: question.note);
+    final options = question.options
+        .map((value) => TextEditingController(text: value))
+        .toList();
+    final save = await showDialog<bool>(
+      context: this.context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
+          title: Text('Edit Question ${question.number}'),
+          content: SizedBox(
+            width: 600,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: content,
+                    minLines: 2,
+                    maxLines: 5,
+                    decoration: const InputDecoration(labelText: 'Question'),
+                  ),
+                  TextField(
+                    controller: answer,
+                    decoration: const InputDecoration(
+                      labelText: 'Correct answer (A, B, C...)',
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  for (var i = 0; i < options.length; i++)
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: options[i],
+                            decoration: InputDecoration(
+                              labelText:
+                                  'Option ${String.fromCharCode(65 + i)}',
+                            ),
+                          ),
+                        ),
+                        IconButton(
+                          tooltip: 'Remove option',
+                          onPressed: () => setDialogState(() {
+                            options.removeAt(i).dispose();
+                            if (answer.text.trim().toUpperCase() ==
+                                String.fromCharCode(65 + i)) {
+                              answer.clear();
+                            }
+                          }),
+                          icon: const Icon(Icons.remove_circle_outline),
+                        ),
+                      ],
+                    ),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: TextButton.icon(
+                      onPressed: () => setDialogState(
+                        () => options.add(TextEditingController()),
+                      ),
+                      icon: const Icon(Icons.add),
+                      label: const Text('Add option'),
+                    ),
+                  ),
+                  TextField(
+                    controller: note,
+                    minLines: 1,
+                    maxLines: 3,
+                    decoration: const InputDecoration(labelText: 'Note'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Save'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (save == true) {
+      await LocalDatabase.instance.saveExamQuestion(
+        ExamQuestion(
+          id: question.id,
+          number: question.number,
+          type: question.type,
+          content: content.text.trim(),
+          options: options.map((item) => item.text.trim()).toList(),
+          correctAnswer: answer.text.trim().toUpperCase(),
+          note: note.text.trim(),
+        ),
+      );
+    }
+    content.dispose();
+    answer.dispose();
+    note.dispose();
+    for (final option in options) {
+      option.dispose();
+    }
+    if (save == true) await _load();
+  }
 }
