@@ -11,7 +11,8 @@ import '../config.dart';
 import '../features/import_questions/import_questions_agent_prompts.dart';
 import '../features/import_questions/import_part_store.dart';
 import 'local_database.dart';
-import 'part_one_image_splitter.dart';
+import 'part_one_image_cropper.dart';
+import 'part_one_agent_response.dart';
 import 'uuid.dart';
 
 class ImportPartInput {
@@ -276,15 +277,6 @@ class ImportQuestionsAgentService {
     await saveRequests();
     onProgress?.call('Preparing Part ${input.part}...');
     try {
-      final partOneImages =
-          input.part == 1 &&
-              input.questionPdf.isNotEmpty &&
-              input.questionPages.isNotEmpty
-          ? await PartOneImageSplitter().splitPdfPages(
-              input.questionPdf,
-              input.questionPages,
-            )
-          : const <String>[];
       final parts = <Part>[TextPart(_promptFor(input))];
       if (input.questionPdf.isNotEmpty && input.questionPages.isNotEmpty) {
         parts.add(
@@ -326,8 +318,19 @@ class ImportQuestionsAgentService {
         request.responsePath = await _saveAgentResponse(input.part, text);
         onProgress?.call('Saved raw agent response: ${request.responsePath}');
       }
-      final contexts = _parseContexts(text, input.part);
-      _applyPartOneImages(contexts, partOneImages);
+      final decoded = PartOneAgentResponse.decode(text);
+      final contexts = PartOneAgentResponse.contexts(decoded, input.part);
+      final partOneImages =
+          input.part == 1 &&
+              input.questionPdf.isNotEmpty &&
+              input.questionPages.isNotEmpty
+          ? await PartOneImageCropper().cropPdfRegions(
+              input.questionPdf,
+              input.questionPages,
+              PartOneAgentResponse.imageRegions(decoded),
+            )
+          : const <String>[];
+      PartOneAgentResponse.applyImages(contexts, partOneImages);
       await ImportPartStore(
         await LocalDatabase.instance.database,
       ).replace(examId: examId, part: input.part, contexts: contexts);
@@ -407,69 +410,6 @@ ${input.contextText.isEmpty ? '' : 'Default context text: ${input.contextText}'}
 The attached source PDFs may contain other pages. Extract only the selected page
 numbers and only TOEIC Part ${input.part}. The attached answer sheet determines
 correct_answer. Return no markdown or explanation outside the JSON object.''';
-
-  List<Map<String, dynamic>> _parseContexts(String raw, int selectedPart) {
-    final cleaned = raw
-        .replaceAll(RegExp(r'^```(?:json)?\s*|\s*```$', multiLine: true), '')
-        .trim();
-    final decoded = jsonDecode(cleaned);
-    final rows = decoded is List ? decoded : (decoded as Map)['contexts'];
-    if (rows is! List) {
-      throw const FormatException('Response has no contexts array.');
-    }
-    if (rows.isEmpty || rows.any((row) => row is! Map)) {
-      throw const FormatException('Response has no valid contexts to import.');
-    }
-    return rows.whereType<Map>().map((row) {
-      final value = Map<String, dynamic>.from(row);
-      value['part'] = selectedPart;
-      return value;
-    }).toList();
-  }
-
-  void _applyPartOneImages(
-    List<Map<String, dynamic>> contexts,
-    List<String> imagePaths,
-  ) {
-    if (imagePaths.isEmpty) {
-      return;
-    }
-    for (var index = 0; index < imagePaths.length; index++) {
-      final context = index < contexts.length
-          ? contexts[index]
-          : <String, dynamic>{
-              'part': 1,
-              'context_type': 'IMAGE_DIAGRAM',
-              'content': <String, dynamic>{},
-              'additional_meta': <String, dynamic>{'note': ''},
-              'questions': <Map<String, dynamic>>[],
-            };
-      if (index >= contexts.length) {
-        contexts.add(context);
-      }
-      context['part'] = 1;
-      context['context_type'] = 'IMAGE_DIAGRAM';
-      final content = Map<String, dynamic>.from(
-        context['content'] as Map? ?? {},
-      );
-      content['image_path'] = imagePaths[index];
-      content['image_filename'] = path.basename(imagePaths[index]);
-      context['content'] = content;
-      final questions = context['questions'] as List? ?? <dynamic>[];
-      if (questions.isEmpty) {
-        questions.add({
-          'question_number': index + 1,
-          'question_type': 'MULTIPLE_CHOICE',
-          'content':
-              'Look at the picture and choose the statement that best describes it.',
-          'options': <String>['', '', '', ''],
-          'correct_answer': '',
-          'additional_meta': <String, dynamic>{'note': ''},
-        });
-      }
-      context['questions'] = questions;
-    }
-  }
 
   String _pages(List<int> pages) =>
       pages.isEmpty ? 'none' : pages.map((page) => page + 1).join(', ');

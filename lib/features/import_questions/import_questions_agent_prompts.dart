@@ -16,6 +16,18 @@ Analyze ONLY TOEIC Listening Part 1 (Photographs).
 OUTPUT CONSTRAINT: Output ONLY one raw JSON object. No markdown, no code fences, no explanations.
 TRANSLATION TARGET LANGUAGE: Vietnamese (vn)
 
+The question PDF contains the original page(s) with the Part 1 photographs. Do
+not assume there are exactly two photographs per page. Visually inspect the
+selected PDF pages and locate each individual photograph. Return its crop
+position in an additional top-level "image_regions" array. Coordinates must be
+normalized to the full page (x, y, width, height each from 0.0 to 1.0), with the
+origin at the page's top-left. Use "page" as the 1-based ordinal among the
+attached selected question PDF pages, and "question_number" as the matching
+question number. Tight-box each photograph, including its full visible border
+but excluding captions, answer choices, margins, and neighboring photos.
+Example: "image_regions":[{"question_number":1,"page":1,"x":0.12,"y":0.18,"width":0.32,"height":0.24}].
+If a photograph boundary is unclear, estimate the tightest reasonable box.
+
 The attached transcript pages are TOEIC Part 1 audio transcript pages.
 Do NOT infer or create Part 2, Part 3, or Part 4 questions.
 Use question numbers in transcript order, starting from 1 unless printed/spoken numbers are visible.
@@ -51,6 +63,9 @@ Return this schema:
         }
       ]
     }
+  ],
+  "image_regions": [
+    {"question_number": 1, "page": 1, "x": 0.12, "y": 0.18, "width": 0.32, "height": 0.24}
   ]
 }
 
@@ -63,6 +78,7 @@ STRICT PART 1 RULES:
 6. Do not use question numbers 11, 12, 13, 14 unless those exact numbers are visibly printed on the image.
 7. Do not create spoken question-response content. That belongs to Part 2, not Part 1.
 8. Only take questions from 1 to 10.
+9. Return exactly one image_regions entry for each Part 1 photograph/context, in question order.
 ''';
 
   static const _part2 = r'''
