@@ -7,6 +7,7 @@ import '../services/vocabulary_scheduler.dart';
 import '../services/vocabulary_review_store.dart';
 import '../services/vocabulary_sentence_cache.dart';
 import '../services/vocabulary_sentence_service.dart';
+import '../services/vocabulary_sentence_question_service.dart';
 import '../services/vocabulary_translation_service.dart';
 import 'vocabulary_review_page.dart';
 import 'vocabulary_sentence_review_page.dart';
@@ -294,12 +295,22 @@ class _VocabularyPageState extends State<VocabularyPage> {
         _showMessage('No saved sentences are available for today’s due words.');
         return;
       }
+      final questions = await const VocabularySentenceQuestionService()
+          .generate(reviewCards);
+      final questionCards = reviewCards
+          .where((word) => questions.containsKey(word.id))
+          .toList();
+      if (questionCards.isEmpty) {
+        _showMessage('No vocabulary questions could be created.');
+        return;
+      }
       if (!mounted) return;
       await Navigator.of(context).push(
         MaterialPageRoute(
           builder: (_) => VocabularySentenceReviewPage(
             words: widget.words,
-            wordIds: reviewCards.map((word) => word.id).toSet(),
+            wordIds: questionCards.map((word) => word.id).toSet(),
+            questions: questions,
           ),
         ),
       );

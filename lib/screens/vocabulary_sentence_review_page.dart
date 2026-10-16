@@ -4,16 +4,19 @@ import 'package:flutter/services.dart';
 import '../models.dart';
 import '../services/vocabulary_review_store.dart';
 import '../services/vocabulary_scheduler.dart';
+import '../services/vocabulary_sentence_question_service.dart';
 
 class VocabularySentenceReviewPage extends StatefulWidget {
   const VocabularySentenceReviewPage({
     super.key,
     required this.words,
     required this.wordIds,
+    required this.questions,
   });
 
   final List<Vocab> words;
   final Set<String> wordIds;
+  final Map<String, VocabularySentenceQuestion> questions;
 
   @override
   State<VocabularySentenceReviewPage> createState() =>
@@ -25,6 +28,7 @@ class _VocabularySentenceReviewPageState
   bool _showAnswer = false;
   bool _saving = false;
   int _reviewed = 0;
+  String? _selectedOption;
 
   Vocab? get _current {
     final cards = VocabularyScheduler.nextCards(widget.words);
@@ -42,6 +46,7 @@ class _VocabularySentenceReviewPageState
         setState(() {
           _reviewed++;
           _showAnswer = false;
+          _selectedOption = null;
         });
       }
     } finally {
@@ -109,6 +114,8 @@ class _VocabularySentenceReviewPageState
 
   Widget _review(Vocab word) {
     final previews = VocabularyScheduler.preview(word);
+    final question = widget.questions[word.id];
+    if (question == null) return _complete();
     return Padding(
       padding: const EdgeInsets.all(24),
       child: Column(
@@ -126,22 +133,70 @@ class _VocabularySentenceReviewPageState
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            SelectableText.rich(
-                              _sentenceText(word),
+                            SelectableText(
+                              question.prompt,
                               textAlign: TextAlign.center,
                               style: const TextStyle(fontSize: 30),
                             ),
-                            const SizedBox(height: 18),
+                            const SizedBox(height: 24),
+                            ...question.options.map(
+                              (option) => Padding(
+                                padding: const EdgeInsets.only(bottom: 8),
+                                child: SizedBox(
+                                  width: double.infinity,
+                                  child: OutlinedButton(
+                                    onPressed: _showAnswer || _saving
+                                        ? null
+                                        : () => setState(
+                                            () => _selectedOption = option,
+                                          ),
+                                    style: OutlinedButton.styleFrom(
+                                      padding: const EdgeInsets.symmetric(
+                                        vertical: 14,
+                                        horizontal: 18,
+                                      ),
+                                      side: BorderSide(
+                                        color: _selectedOption == option
+                                            ? Theme.of(
+                                                context,
+                                              ).colorScheme.primary
+                                            : Theme.of(
+                                                context,
+                                              ).colorScheme.outlineVariant,
+                                        width: _selectedOption == option
+                                            ? 2
+                                            : 1,
+                                      ),
+                                    ),
+                                    child: Text(
+                                      option,
+                                      textAlign: TextAlign.center,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 10),
                             if (_showAnswer) ...[
                               const Divider(),
                               const SizedBox(height: 18),
+                              Text(
+                                'Answer: ${question.answer}',
+                                style: const TextStyle(
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              const SizedBox(height: 10),
                               SelectableText(
                                 word.sentenceTranslation,
                                 textAlign: TextAlign.center,
                                 style: const TextStyle(fontSize: 24),
                               ),
                             ] else
-                              const Text('Press Enter or use Show answer.'),
+                              const Text(
+                                'Choose an option, then show the answer.',
+                              ),
                           ],
                         ),
                       ),
@@ -171,35 +226,6 @@ class _VocabularySentenceReviewPageState
         ],
       ),
     );
-  }
-
-  TextSpan _sentenceText(Vocab word) {
-    final sentence = word.sentence;
-    final target = word.word.trim();
-    if (target.isEmpty) return TextSpan(text: sentence);
-    final matches = RegExp(
-      RegExp.escape(target),
-      caseSensitive: false,
-    ).allMatches(sentence);
-    if (matches.isEmpty) return TextSpan(text: sentence);
-    final spans = <TextSpan>[];
-    var start = 0;
-    for (final match in matches) {
-      if (match.start > start) {
-        spans.add(TextSpan(text: sentence.substring(start, match.start)));
-      }
-      spans.add(
-        TextSpan(
-          text: sentence.substring(match.start, match.end),
-          style: const TextStyle(fontWeight: FontWeight.w800),
-        ),
-      );
-      start = match.end;
-    }
-    if (start < sentence.length) {
-      spans.add(TextSpan(text: sentence.substring(start)));
-    }
-    return TextSpan(children: spans);
   }
 
   Widget _ratingButton(
