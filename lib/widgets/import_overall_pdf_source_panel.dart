@@ -10,6 +10,7 @@ class ImportOverallPdfSourcePanel extends StatelessWidget {
     required this.loading,
     required this.onPickQuestions,
     required this.onPickTranscripts,
+    required this.onAutoDetect,
   });
 
   final OverallPdfSource questionSource;
@@ -17,6 +18,7 @@ class ImportOverallPdfSourcePanel extends StatelessWidget {
   final bool loading;
   final VoidCallback onPickQuestions;
   final VoidCallback onPickTranscripts;
+  final VoidCallback onAutoDetect;
 
   @override
   Widget build(BuildContext context) => Card(
@@ -31,6 +33,19 @@ class ImportOverallPdfSourcePanel extends StatelessWidget {
           ),
           _sourceRow('Question PDF', questionSource, onPickQuestions),
           _sourceRow('Transcript PDF', transcriptSource, onPickTranscripts),
+          Align(
+            alignment: Alignment.centerRight,
+            child: FilledButton.tonalIcon(
+              onPressed:
+                  loading ||
+                      (!questionSource.isSelected &&
+                          !transcriptSource.isSelected)
+                  ? null
+                  : onAutoDetect,
+              icon: const Icon(Icons.auto_awesome),
+              label: const Text('Auto detect'),
+            ),
+          ),
         ],
       ),
     ),

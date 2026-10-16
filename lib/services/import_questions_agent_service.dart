@@ -228,7 +228,9 @@ class ImportQuestionsAgentService {
     }
   }
 
-  Future<void> send({void Function(String message)? onProgress}) async {
+  Future<List<AgentRequest>> send({
+    void Function(String message)? onProgress,
+  }) async {
     if (AppConfig.geminiApiKey.isEmpty) {
       throw StateError('GEMINI_API_KEY is missing from application config.');
     }
@@ -248,12 +250,29 @@ class ImportQuestionsAgentService {
       throw StateError('Answer sheet required: ${names.join(', ')}.');
     }
 
+    final failedRequests = <AgentRequest>[];
     for (final input in selected) {
       final request = AgentRequest(part: input.part, prompt: input.prompt);
       requests.add(request);
-      await saveRequests();
-      await _runRequest(request, input, onProgress: onProgress);
+      try {
+        await saveRequests();
+        await _runRequest(request, input, onProgress: onProgress);
+      } catch (error) {
+        request
+          ..status = 'failed'
+          ..error = '$error';
+        failedRequests.add(request);
+        try {
+          await saveRequests();
+        } catch (_) {
+          // Keep sending the remaining parts even if request persistence fails.
+        }
+        onProgress?.call(
+          'Part ${input.part} failed. Continuing with the remaining parts...',
+        );
+      }
     }
+    return failedRequests;
   }
 
   Future<void> retry(

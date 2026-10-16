@@ -5,7 +5,9 @@ import 'package:flutter/material.dart';
 import 'package:pasteboard/pasteboard.dart';
 
 import '../services/import_questions_agent_service.dart';
+import '../services/import_pdf_page_detection_service.dart';
 import '../widgets/import_answer_sheet_panel.dart';
+import '../widgets/import_agent_requests_dialog.dart';
 import '../widgets/import_overall_pdf_source_panel.dart';
 import '../widgets/import_pdf_page_row.dart';
 import '../widgets/pdf_page_selector_dialog.dart';
@@ -22,8 +24,6 @@ class ImportQuestionsAgentWindow extends StatefulWidget {
 class _ImportQuestionsAgentWindowState
     extends State<ImportQuestionsAgentWindow> {
   late final ImportQuestionsAgentService _service;
-  final _requestsScrollController = ScrollController();
-  final _requestsHorizontalScrollController = ScrollController();
   bool _loading = false;
   String _progress = '';
 
@@ -185,6 +185,58 @@ class _ImportQuestionsAgentWindowState
     });
   }
 
+  Future<void> _autoDetectPartPages(String section) async {
+    final sectionSources = _service.sources[section]!;
+    final pdfPaths = <String, String>{};
+    final pageCounts = <String, int>{};
+    for (final lane in ['questions', 'transcripts']) {
+      final source = sectionSources[lane]!;
+      if (source.isSelected) {
+        pdfPaths[lane] = source.tempPath;
+        pageCounts[lane] = source.pages.length;
+      }
+    }
+    setState(() {
+      _loading = true;
+      _progress = 'Sending selected PDFs to agent for page detection...';
+    });
+    try {
+      final assignments = await ImportPdfPageDetectionService().detect(
+        section: section,
+        pdfPaths: pdfPaths,
+        pageCounts: pageCounts,
+        onProgress: (message) {
+          if (mounted) setState(() => _progress = message);
+        },
+      );
+      if (!mounted) return;
+      setState(() {
+        for (final part in _service.parts) {
+          if ((part.part <= 4 ? 'listening' : 'reading') != section) continue;
+          final questionPages = assignments['questions']?[part.part];
+          if (questionPages != null) {
+            part
+              ..questionPdf = sectionSources['questions']!.tempPath
+              ..questionPages = questionPages;
+          }
+          final transcriptPages = assignments['transcripts']?[part.part];
+          if (transcriptPages != null) {
+            part
+              ..transcriptPdf = sectionSources['transcripts']!.tempPath
+              ..transcriptPages = transcriptPages;
+          }
+        }
+      });
+      _showMessage(
+        'Page detection completed for ${section == 'listening' ? 'Listening' : 'Reading'}.',
+      );
+    } catch (error) {
+      if (mounted) _showMessage('Could not detect PDF pages: $error');
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
   Future<void> _editPrompt(ImportPartInput part) async {
     final controller = TextEditingController(text: part.prompt);
     final saved = await showDialog<String>(
@@ -222,7 +274,7 @@ class _ImportQuestionsAgentWindowState
   Future<void> _send() async {
     setState(() => _loading = true);
     try {
-      await _service.send(
+      final failedRequests = await _service.send(
         onProgress: (message) {
           if (mounted) {
             setState(() => _progress = message);
@@ -233,11 +285,17 @@ class _ImportQuestionsAgentWindowState
         final saved = _service.requests.isEmpty
             ? ''
             : _service.requests.last.responsePath;
-        _showMessage(
-          saved.isEmpty
-              ? 'Import complete. Groups and questions were saved.'
-              : 'Import complete. Response saved to: $saved',
-        );
+        if (failedRequests.isNotEmpty) {
+          _showMessage(
+            '${failedRequests.length} part request(s) failed. Open Requests to retry them.',
+          );
+        } else {
+          _showMessage(
+            saved.isEmpty
+                ? 'Import complete. Groups and questions were saved.'
+                : 'Import complete. Response saved to: $saved',
+          );
+        }
       }
     } catch (error) {
       if (mounted) {
@@ -250,207 +308,19 @@ class _ImportQuestionsAgentWindowState
     }
   }
 
-  Future<void> _showRequests() async {
-    var retryingAll = false;
-    await showDialog<void>(
-      context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, refresh) => AlertDialog(
-          title: const Text('Agent requests'),
-          content: SizedBox(
-            width: 820,
-            height: 500,
-            child: _service.requests.isEmpty
-                ? const Text('No agent requests yet.')
-                : Scrollbar(
-                    controller: _requestsScrollController,
-                    thumbVisibility: true,
-                    child: SingleChildScrollView(
-                      controller: _requestsScrollController,
-                      child: Scrollbar(
-                        controller: _requestsHorizontalScrollController,
-                        thumbVisibility: true,
-                        child: SingleChildScrollView(
-                          controller: _requestsHorizontalScrollController,
-                          scrollDirection: Axis.horizontal,
-                          child: ConstrainedBox(
-                            constraints: const BoxConstraints(minWidth: 1100),
-                            child: DataTable(
-                              columns: const [
-                                DataColumn(label: Text('Part')),
-                                // DataColumn(label: Text('Created')),
-                                DataColumn(label: Text('Status')),
-                                DataColumn(label: Text('Attempts')),
-                                DataColumn(label: Text('Error')),
-                                // DataColumn(label: Text('Response JSON')),
-                                DataColumn(label: Text('Actions')),
-                              ],
-                              rows: _service.requests
-                                  .map(
-                                    (request) => DataRow(
-                                      cells: [
-                                        DataCell(Text('${request.part}')),
-                                        // DataCell(
-                                        //   Text(
-                                        //     request.createdAt
-                                        //         .toLocal()
-                                        //         .toString()
-                                        //         .substring(0, 19),
-                                        //   ),
-                                        // ),
-                                        DataCell(Text(request.status)),
-                                        DataCell(Text('${request.attempts}')),
-                                        DataCell(
-                                          SizedBox(
-                                            width: 220,
-                                            child: Text(
-                                              request.error,
-                                              overflow: TextOverflow.ellipsis,
-                                            ),
-                                          ),
-                                        ),
-                                        // DataCell(
-                                        //   SizedBox(
-                                        //     width: 260,
-                                        //     child: Text(
-                                        //       request.responsePath,
-                                        //       overflow: TextOverflow.ellipsis,
-                                        //     ),
-                                        //   ),
-                                        // ),
-                                        DataCell(
-                                          Row(
-                                            mainAxisSize: MainAxisSize.min,
-                                            children: [
-                                              IconButton(
-                                                tooltip: 'Edit request prompt',
-                                                icon: const Icon(
-                                                  Icons.edit_outlined,
-                                                ),
-                                                onPressed:
-                                                    request.status == 'running'
-                                                    ? null
-                                                    : () async {
-                                                        await _editPrompt(
-                                                          _service.parts[request
-                                                                  .part -
-                                                              1],
-                                                        );
-                                                        request.prompt =
-                                                            _service
-                                                                .parts[request
-                                                                        .part -
-                                                                    1]
-                                                                .prompt;
-                                                        refresh(() {});
-                                                      },
-                                              ),
-                                              OutlinedButton.icon(
-                                                icon: const Icon(Icons.refresh),
-                                                label: const Text('Retry'),
-                                                onPressed:
-                                                    request.status == 'running'
-                                                    ? null
-                                                    : () async {
-                                                        try {
-                                                          await _service.retry(
-                                                            request,
-                                                            onProgress: (message) {
-                                                              if (mounted) {
-                                                                setState(
-                                                                  () => _progress =
-                                                                      message,
-                                                                );
-                                                              }
-                                                            },
-                                                          );
-                                                        } catch (_) {}
-                                                        refresh(() {});
-                                                      },
-                                              ),
-                                              IconButton(
-                                                tooltip: 'Remove request',
-                                                icon: const Icon(
-                                                  Icons.delete_outline,
-                                                ),
-                                                onPressed:
-                                                    request.status == 'running'
-                                                    ? null
-                                                    : () {
-                                                        _service.requests
-                                                            .remove(request);
-                                                        _service.saveRequests();
-                                                        refresh(() {});
-                                                      },
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  )
-                                  .toList(),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-          ),
-          actions: [
-            FilledButton.icon(
-              onPressed:
-                  retryingAll ||
-                      !_service.requests.any(
-                        (request) => request.status != 'running',
-                      )
-                  ? null
-                  : () async {
-                      retryingAll = true;
-                      refresh(() {});
-                      for (final request in List<AgentRequest>.from(
-                        _service.requests,
-                      )) {
-                        if (request.status == 'running') continue;
-                        try {
-                          await _service.retry(
-                            request,
-                            onProgress: (message) {
-                              if (mounted) {
-                                setState(() => _progress = message);
-                              }
-                            },
-                          );
-                        } catch (_) {
-                          // Keep retrying the remaining requests.
-                        }
-                        refresh(() {});
-                      }
-                      retryingAll = false;
-                      refresh(() {});
-                    },
-              icon: retryingAll
-                  ? const SizedBox.square(
-                      dimension: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.refresh),
-              label: Text(retryingAll ? 'Retrying...' : 'Retry all'),
-            ),
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Close'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+  Future<void> _showRequests() => showDialog<void>(
+    context: context,
+    builder: (context) => ImportAgentRequestsDialog(
+      service: _service,
+      onEditPrompt: _editPrompt,
+      onProgress: (message) {
+        if (mounted) setState(() => _progress = message);
+      },
+    ),
+  );
 
   @override
   void dispose() {
-    _requestsScrollController.dispose();
-    _requestsHorizontalScrollController.dispose();
     super.dispose();
   }
 
@@ -538,6 +408,8 @@ class _ImportQuestionsAgentWindowState
           start <= 4 ? 'listening' : 'reading',
           'transcripts',
         ),
+        onAutoDetect: () =>
+            _autoDetectPartPages(start <= 4 ? 'listening' : 'reading'),
       ),
       for (var part = start; part <= end; part++)
         _partCard(_service.parts[part - 1]),
