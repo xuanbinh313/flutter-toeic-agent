@@ -1,5 +1,8 @@
+import 'dart:io';
+
 import 'package:path/path.dart' as path;
 
+import 'cloudflare_r2_service.dart';
 import 'local_database.dart';
 import 'uuid.dart';
 
@@ -7,6 +10,27 @@ class LocalMediafileService {
   LocalMediafileService._();
 
   static final instance = LocalMediafileService._();
+
+  /// Copies a local source into the directory used by the R2 sync service.
+  Future<String> copyToSyncStorage(String localPath, {String? filename}) async {
+    final source = File(localPath);
+    if (!await source.exists()) {
+      throw FileSystemException('Local media file does not exist.', localPath);
+    }
+    final target = CloudflareR2Service.instance.localFile(
+      filename ?? path.basename(localPath),
+    );
+    await target.parent.create(recursive: true);
+    final sourcePath = path.canonicalize(source.path);
+    final targetPath = path.canonicalize(target.path);
+    final samePath = Platform.isWindows
+        ? sourcePath.toLowerCase() == targetPath.toLowerCase()
+        : sourcePath == targetPath;
+    if (!samePath) {
+      await source.copy(target.path);
+    }
+    return target.path;
+  }
 
   /// Records a locally created media file so the next remote sync uploads it.
   Future<String> registerNew(String localPath) async {

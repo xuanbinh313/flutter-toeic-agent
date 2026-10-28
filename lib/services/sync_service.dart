@@ -5,6 +5,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import '../config.dart';
 import 'cloudflare_r2_service.dart';
+import 'image_sync_service.dart';
 import 'local_database.dart';
 import 'local_schema_service.dart';
 import 'uuid.dart';
@@ -49,7 +50,7 @@ class SyncService {
     if (userId == null) return 'Sign in to Supabase before syncing.';
     final db = await LocalDatabase.instance.database;
     await _repairPendingIdentifiers(db);
-    await _uploadTagDependencies(db, client, userId);
+    await ImageSyncService.instance.prepareContextImagesForUpload(db);
     onProgress?.call('Syncing media to Cloudflare R2...');
     final uploadedMedia = await _syncDirtyMediafiles(
       db,
@@ -57,6 +58,7 @@ class SyncService {
       userId,
       onProgress: onProgress,
     );
+    await _uploadTagDependencies(db, client, userId);
     var uploaded = 0;
     var skippedOrphanTags = 0;
     for (final table in _tables) {
@@ -68,11 +70,7 @@ class SyncService {
         dirty = validTags;
       }
       if (dirty.isNotEmpty) {
-        final payload = _remotePayload(table, dirty, userId);
-        await client
-            .schema(AppConfig.supabaseSchema)
-            .from(table)
-            .upsert(payload, onConflict: 'id');
+        await _upsertRows(client, table, dirty, userId);
         final ids = dirty.map((row) => row['id'] as String).toList();
         final placeholders = List.filled(ids.length, '?').join(',');
         await db.rawUpdate(
@@ -189,10 +187,14 @@ class SyncService {
   ) async {
     if (rows.isEmpty) return;
     final payload = _remotePayload(table, rows, userId);
-    await client
-        .schema(AppConfig.supabaseSchema)
-        .from(table)
-        .upsert(payload, onConflict: 'id');
+    const batchSize = 500;
+    for (var start = 0; start < payload.length; start += batchSize) {
+      final end = (start + batchSize).clamp(0, payload.length);
+      await client
+          .schema(AppConfig.supabaseSchema)
+          .from(table)
+          .upsert(payload.sublist(start, end), onConflict: 'id');
+    }
   }
 
   /// Media records are identified remotely by both owner and filename. A
@@ -227,6 +229,9 @@ class SyncService {
         // Supabase requires a JSON object here. SQLite stores JSON as text,
         // and older rows may not have the column yet.
         payload['data'] = _jsonObject(payload['data']);
+      }
+      if (table == 'exam_contexts') {
+        ImageSyncService.instance.prepareRemotePayload(payload);
       }
       return payload;
     }).toList();
@@ -325,11 +330,7 @@ class SyncService {
     var downloaded = 0;
     for (final table in _tables) {
       onProgress?.call('Downloading $table data...');
-      final remote = await client
-          .schema(AppConfig.supabaseSchema)
-          .from(table)
-          .select()
-          .eq('user_id', userId);
+      final remote = await _remoteRows(client, table, userId);
       await LocalSchemaService.ensureColumns(
         db,
         table,
@@ -338,7 +339,7 @@ class SyncService {
       for (final row in remote) {
         await db.insert(
           table,
-          _localPayload(row),
+          _localPayload(row, table: table),
           conflictAlgorithm: ConflictAlgorithm.replace,
         );
         downloaded++;
@@ -354,11 +355,7 @@ class SyncService {
     String userId, {
     SyncProgress? onProgress,
   }) async {
-    final remote = await client
-        .schema(AppConfig.supabaseSchema)
-        .from('mediafiles')
-        .select()
-        .eq('user_id', userId);
+    final remote = await _remoteRows(client, 'mediafiles', userId);
     await LocalSchemaService.ensureColumns(
       db,
       'mediafiles',
@@ -383,7 +380,7 @@ class SyncService {
       }
       await db.insert(
         'mediafiles',
-        _localPayload(row),
+        _localPayload(row, table: 'mediafiles'),
         conflictAlgorithm: ConflictAlgorithm.replace,
       );
     }
@@ -393,10 +390,39 @@ class SyncService {
   /// Supabase decodes PostgreSQL booleans as Dart bools, while sqflite only
   /// accepts SQLite-compatible scalar values. JSON columns are decoded as
   /// maps/lists too, and must be encoded before insertion.
-  Map<String, Object?> _localPayload(Map<String, dynamic> row) => {
-    for (final entry in row.entries) entry.key: _sqliteValue(entry.value),
-    'dirty': 0,
-  };
+  Map<String, Object?> _localPayload(
+    Map<String, dynamic> row, {
+    String? table,
+  }) {
+    final payload = <String, Object?>{
+      for (final entry in row.entries) entry.key: _sqliteValue(entry.value),
+      'dirty': 0,
+    };
+    if (table == 'exam_contexts') {
+      ImageSyncService.instance.prepareLocalPayload(row, payload);
+    }
+    return payload;
+  }
+
+  Future<List<Map<String, dynamic>>> _remoteRows(
+    SupabaseClient client,
+    String table,
+    String userId,
+  ) async {
+    const pageSize = 500;
+    final rows = <Map<String, dynamic>>[];
+    for (var offset = 0; ; offset += pageSize) {
+      final page = await client
+          .schema(AppConfig.supabaseSchema)
+          .from(table)
+          .select()
+          .eq('user_id', userId)
+          .order('id')
+          .range(offset, offset + pageSize - 1);
+      rows.addAll(page);
+      if (page.length < pageSize) return rows;
+    }
+  }
 
   Object? _sqliteValue(Object? value) => switch (value) {
     bool value => value ? 1 : 0,
