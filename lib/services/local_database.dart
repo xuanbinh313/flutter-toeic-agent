@@ -1,13 +1,13 @@
 import 'dart:convert';
-import 'dart:io';
-
 import 'package:path/path.dart' as path;
-import 'package:path_provider/path_provider.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import '../config.dart';
 import '../models.dart';
 import 'local_schema_service.dart';
+import 'local_database_json.dart';
+import 'local_database_path_resolver.dart';
+import 'exam_question_row_mapper.dart';
 import 'uuid.dart';
 
 class LocalDatabase {
@@ -21,18 +21,12 @@ class LocalDatabase {
     if (_database != null) return _database!;
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
-    final databasePath = await _findDatabasePath();
+    final databasePath = await LocalDatabasePathResolver.resolve(
+      AppConfig.databasePath,
+    );
     _database = await openDatabase(databasePath, version: 1);
     await LocalSchemaService.ensure(_database!);
     return _database!;
-  }
-
-  Future<String> _findDatabasePath() async {
-    if (AppConfig.databasePath.isNotEmpty) return AppConfig.databasePath;
-    final projectDatabase = path.join(Directory.current.path, 'exams.db');
-    if (File(projectDatabase).existsSync()) return projectDatabase;
-    final appDirectory = await getApplicationSupportDirectory();
-    return path.join(appDirectory.path, 'exams.db');
   }
 
   Future<List<Exam>> loadExams() async {
@@ -81,6 +75,12 @@ class LocalDatabase {
               end: (row['end_time'] as num).toDouble(),
               text: row['text'] as String,
               hint: row['hint'] as String?,
+              words:
+                  (decodeLocalJsonMap(row['additional_meta'])['words'] as List?)
+                      ?.whereType<Map>()
+                      .map((word) => Map<String, dynamic>.from(word))
+                      .toList() ??
+                  const [],
             ),
           )
           .toList();
@@ -134,7 +134,7 @@ class LocalDatabase {
           'end_time': chunk.end,
           'text': chunk.text,
           'hint': chunk.hint,
-          'additional_meta': '{}',
+          'additional_meta': jsonEncode({'words': chunk.words}),
           'dirty': 1,
         });
       }
@@ -196,11 +196,13 @@ class LocalDatabase {
     final byContext = <String, List<ExamQuestion>>{};
     for (final row in questions) {
       final contextId = row['context_id'] as String;
-      byContext.putIfAbsent(contextId, () => []).add(_questionFromRow(row));
+      byContext
+          .putIfAbsent(contextId, () => [])
+          .add(ExamQuestionRowMapper.fromRow(row));
     }
     return contexts.map((row) {
-      final content = _jsonMap(row['content']);
-      final meta = _jsonMap(row['additional_meta']);
+      final content = decodeLocalJsonMap(row['content']);
+      final meta = decodeLocalJsonMap(row['additional_meta']);
       return ExamContext(
         id: row['id'] as String,
         part: (row['part'] as num?)?.toInt() ?? 1,
@@ -283,48 +285,6 @@ class LocalDatabase {
         });
       }
     });
-  }
-
-  ExamQuestion _questionFromRow(Map<String, Object?> row) {
-    final meta = _jsonMap(row['additional_meta']);
-    final options = _jsonList(row['options']).map((value) => '$value').toList();
-    return ExamQuestion(
-      id: row['id'] as String,
-      number: (row['question_number'] as num?)?.toInt() ?? 0,
-      type: row['question_type'] as String? ?? '',
-      content: row['content'] as String? ?? '',
-      options: options,
-      correctAnswer: row['correct_answer'] as String? ?? '',
-      note: meta['note'] as String? ?? '',
-    );
-  }
-
-  Map<String, dynamic> _jsonMap(Object? value) {
-    if (value is Map<String, dynamic>) return value;
-    if (value is String) {
-      try {
-        final decoded = jsonDecode(value);
-        if (decoded is Map<String, dynamic>) return decoded;
-      } on FormatException {
-        // Invalid legacy JSON is treated as an empty value.
-      }
-    }
-    return {};
-  }
-
-  List<dynamic> _jsonList(Object? value) {
-    var decoded = value;
-    // Older Jun Edu exports may JSON-encode the options column twice.
-    for (var attempt = 0; attempt < 3; attempt++) {
-      if (decoded is List<dynamic>) return decoded;
-      if (decoded is! String) return [];
-      try {
-        decoded = jsonDecode(decoded);
-      } on FormatException {
-        return [];
-      }
-    }
-    return [];
   }
 
   Future<void> deleteContext(String contextId) => database.then(
@@ -425,7 +385,7 @@ class LocalDatabase {
       limit: 1,
     );
     if (rows.isEmpty) return;
-    final meta = _jsonMap(rows.first['additional_meta']);
+    final meta = decodeLocalJsonMap(rows.first['additional_meta']);
     meta['audio_start'] = start;
     meta['audio_end'] = end;
     await db.update(

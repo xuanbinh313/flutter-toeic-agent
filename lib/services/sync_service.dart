@@ -17,6 +17,7 @@ class SyncService {
   static final instance = SyncService._();
   static const _tables = [
     'exams',
+    'exam_srt_chunks',
     'exam_contexts',
     'exam_questions',
     'user_question_tags',
@@ -28,6 +29,7 @@ class SyncService {
   // The deployed JunEdu Supabase schema predates this local-only field.
   static const _unsupportedRemoteColumns = {
     'exam_attempts': {'additional_meta'},
+    'exam_srt_chunks': {'note'},
   };
   bool _ready = false;
   bool get isReady => _ready;
@@ -230,6 +232,9 @@ class SyncService {
         // and older rows may not have the column yet.
         payload['data'] = _jsonObject(payload['data']);
       }
+      if (table == 'exam_srt_chunks') {
+        payload['additional_meta'] = _jsonObject(payload['additional_meta']);
+      }
       if (table == 'exam_contexts') {
         ImageSyncService.instance.prepareRemotePayload(payload);
       }
@@ -283,6 +288,7 @@ class SyncService {
         );
         await _replaceInvalidIds(tx, 'user_answers');
         await _replaceInvalidIds(tx, 'user_question_tags');
+        await _replaceInvalidIds(tx, 'exam_srt_chunks');
       });
 
   Future<void> _replaceInvalidIds(

@@ -71,6 +71,7 @@ class SrtChunk {
     required this.end,
     required this.text,
     this.hint,
+    this.words = const [],
   });
   final String id;
   int index;
@@ -78,6 +79,7 @@ class SrtChunk {
   double end;
   String text;
   String? hint;
+  List<Map<String, dynamic>> words;
 }
 
 class AudioSegmentMapping {

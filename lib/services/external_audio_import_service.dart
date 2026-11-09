@@ -66,6 +66,7 @@ class ExternalAudioImportService {
       Uri.parse('$_baseUrl/api/align-audio'),
       body: {'task_id': taskId, 'text': text},
     );
+    await _saveDebugResponse('align-audio', response);
     _ensureSuccess(response, 'start audio alignment');
     final alignmentTask =
         (jsonDecode(response.body) as Map<String, dynamic>)['task_id']
@@ -86,8 +87,13 @@ class ExternalAudioImportService {
     final url = rawUrl.startsWith('http') ? rawUrl : '$_baseUrl$rawUrl';
     final audioResponse = await http.get(Uri.parse(url));
     _ensureSuccess(audioResponse, 'download aligned audio');
-    final audioPath = await _saveAudio(sourcePath, audioResponse.bodyBytes);
     final chunks = _chunks(result);
+    if (chunks.isEmpty) {
+      throw const FormatException(
+        'The audio service returned aligned audio without transcript segments.',
+      );
+    }
+    final audioPath = await _saveAudio(sourcePath, audioResponse.bodyBytes);
     progress('Alignment complete: ${chunks.length} transcript chunks.');
     return AlignedAudioImport(audioPath: audioPath, chunks: chunks);
   }
@@ -106,8 +112,10 @@ class ExternalAudioImportService {
       final data = jsonDecode(response.body) as Map<String, dynamic>;
       switch (data['status']) {
         case 'completed':
+          await _saveDebugResponse('check-status-completed', response);
           return (data['result'] as Map?)?.cast<String, dynamic>() ?? {};
         case 'failed':
+          await _saveDebugResponse('check-status-failed', response);
           throw HttpException('${data['error'] ?? 'The audio task failed.'}');
       }
     }
@@ -132,8 +140,47 @@ class ExternalAudioImportService {
     return target.path;
   }
 
+  Future<void> _saveDebugResponse(String stage, http.Response response) async {
+    final appData = Platform.environment['APPDATA'];
+    if (appData == null || appData.isEmpty) return;
+    final folder = Directory(
+      '$appData${Platform.pathSeparator}jun-toeic${Platform.pathSeparator}import-debug',
+    );
+    await folder.create(recursive: true);
+    final timestamp = DateTime.now().toUtc().toIso8601String().replaceAll(
+      RegExp(r'[^0-9TZ]'),
+      '-',
+    );
+    final file = File(
+      '${folder.path}${Platform.pathSeparator}${timestamp}_$stage.json',
+    );
+    final content = <String, Object?>{
+      'stage': stage,
+      'captured_at_utc': DateTime.now().toUtc().toIso8601String(),
+      'status_code': response.statusCode,
+      'headers': response.headers,
+      'body': _decodeJsonOrText(response.body),
+    };
+    await file.writeAsString(
+      const JsonEncoder.withIndent('  ').convert(content),
+      flush: true,
+    );
+  }
+
+  Object? _decodeJsonOrText(String body) {
+    try {
+      return jsonDecode(body);
+    } on FormatException {
+      return body;
+    }
+  }
+
   List<SrtChunk> _chunks(Map<String, dynamic> result) {
-    final raw = result['segments'] ?? result['content'];
+    final raw =
+        result['segments'] ??
+        result['content'] ??
+        result['transcript'] ??
+        result['chunks'];
     if (raw is! List) return [];
     return [
       for (var i = 0; i < raw.length; i++)
@@ -145,6 +192,12 @@ class ExternalAudioImportService {
             end: _number(raw[i]['end'] ?? raw[i]['end_time']),
             text: raw[i]['text'] as String? ?? '',
             hint: raw[i]['hint'] as String? ?? raw[i]['note'] as String?,
+            words:
+                (raw[i]['words'] as List?)
+                    ?.whereType<Map>()
+                    .map((word) => Map<String, dynamic>.from(word))
+                    .toList() ??
+                const [],
           ),
     ];
   }

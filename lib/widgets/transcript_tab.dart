@@ -9,7 +9,10 @@ import '../models.dart';
 import '../services/audio_segment_detection_service.dart';
 import '../services/local_database.dart';
 import '../services/transcript_translation_service.dart';
+import '../services/transcript_validation_service.dart';
 import 'detected_audio_segments_dialog.dart';
+import 'transcript_playback_bar.dart';
+import 'transcript_toolbar.dart';
 import 'transcript_chunk_grid.dart';
 
 class TranscriptTab extends StatefulWidget {
@@ -42,6 +45,7 @@ class _TranscriptTabState extends State<TranscriptTab> {
   bool _isRepeating = false;
   bool _isDetectingAudio = false;
   bool _isTranslating = false;
+  bool _isValidating = false;
   bool _transcriptRefreshQueued = false;
   int _gridRevision = 0;
 
@@ -64,6 +68,7 @@ class _TranscriptTabState extends State<TranscriptTab> {
     if (mounted) {
       setState(() {
         _chunks = chunks;
+        _selectedId = chunks.isEmpty ? null : chunks.first.id;
         _isLoaded = true;
       });
     }
@@ -117,16 +122,20 @@ class _TranscriptTabState extends State<TranscriptTab> {
     final chunk = _selectedChunk;
     final path = _audioPath;
     if (chunk == null || path == null) return;
-    if (_playback.value.isPlaying) {
-      await _player.pause();
-    } else {
-      final range = (
-        chunkId: chunk.id,
-        start: Duration(milliseconds: _milliseconds(chunk.start)),
-        end: Duration(milliseconds: _milliseconds(chunk.end)),
-      );
-      _activePlaybackRange = range;
-      await _player.play(DeviceFileSource(path), position: range.start);
+    try {
+      if (_playback.value.isPlaying) {
+        await _player.pause();
+      } else {
+        final range = (
+          chunkId: chunk.id,
+          start: Duration(milliseconds: _milliseconds(chunk.start)),
+          end: Duration(milliseconds: _milliseconds(chunk.end)),
+        );
+        _activePlaybackRange = range;
+        await _player.play(DeviceFileSource(path), position: range.start);
+      }
+    } catch (error) {
+      _showMessage('Could not play audio file "$path": $error');
     }
   }
 
@@ -359,6 +368,48 @@ class _TranscriptTabState extends State<TranscriptTab> {
     }
   }
 
+  Future<void> _validateTranscript() async {
+    if (_chunks.isEmpty) {
+      _showMessage('No transcript chunks are available to validate.');
+      return;
+    }
+    setState(() => _isValidating = true);
+    try {
+      final contexts = await LocalDatabase.instance.loadExamContexts(
+        widget.examId,
+      );
+      final result = await const TranscriptValidationService().validate(
+        chunks: _chunks,
+        contexts: contexts,
+      );
+      if (result.repairCount == 0) {
+        _showMessage('Validation complete. No transcript issues found.');
+        return;
+      }
+      await LocalDatabase.instance.saveSrtChunks(widget.examId, result.chunks);
+      if (!mounted) return;
+      setState(() {
+        _chunks = result.chunks;
+        _selectedId = _chunks.isEmpty ? null : _chunks.first.id;
+        _hasChanges = false;
+        _gridRevision++;
+      });
+      _showMessage(
+        'Validated and applied ${result.repairCount} transcript repairs.',
+      );
+    } on GenerativeAIException catch (error) {
+      _showMessage('Transcript validation agent failed: ${error.message}');
+    } on FormatException catch (error) {
+      _showMessage(
+        'Transcript validation returned invalid JSON: ${error.message}',
+      );
+    } catch (error) {
+      _showMessage('Could not validate transcript: $error');
+    } finally {
+      if (mounted) setState(() => _isValidating = false);
+    }
+  }
+
   void _showMessage(String message) {
     if (mounted) {
       ScaffoldMessenger.of(
@@ -382,9 +433,6 @@ class _TranscriptTabState extends State<TranscriptTab> {
     );
   }
 
-  String _format(Duration value) =>
-      (value.inMilliseconds / 1000).toStringAsFixed(2);
-
   @override
   void dispose() {
     _playback.dispose();
@@ -397,9 +445,29 @@ class _TranscriptTabState extends State<TranscriptTab> {
     if (!_isLoaded) return const Center(child: CircularProgressIndicator());
     return Column(
       children: [
-        _toolbar(),
+        TranscriptToolbar(
+          isDetecting: _isDetectingAudio,
+          isTranslating: _isTranslating,
+          isValidating: _isValidating,
+          hasChanges: _hasChanges,
+          hasSelection: _selectedChunk != null,
+          onDetect: _autoDetectAudio,
+          onValidate: _validateTranscript,
+          onTranslate: _translateToVietnamese,
+          onSplit: _showSplitDialog,
+          onSave: _save,
+        ),
         const SizedBox(height: 8),
-        if (_audioPath == null) _audioUnavailable() else _progressBar(),
+        TranscriptPlaybackBar(
+          audioAvailable: _audioPath != null,
+          playback: _playback,
+          canPlay: _selectedChunk != null,
+          onPlay: _playSelection,
+          onSeek: (position) {
+            _player.seek(position);
+            _updatePlayback(position: position);
+          },
+        ),
         const SizedBox(height: 8),
         Expanded(
           child: TranscriptChunkGrid(
@@ -415,86 +483,4 @@ class _TranscriptTabState extends State<TranscriptTab> {
       ],
     );
   }
-
-  Widget _toolbar() => Row(
-    children: [
-      const Expanded(
-        child: Text(
-          'Transcript chunks',
-          style: TextStyle(fontSize: 19, fontWeight: FontWeight.w700),
-        ),
-      ),
-      OutlinedButton.icon(
-        onPressed: _isDetectingAudio ? null : _autoDetectAudio,
-        icon: const Icon(Icons.auto_awesome),
-        label: Text(
-          _isDetectingAudio ? 'Detecting audio...' : 'Auto-detect Audio',
-        ),
-      ),
-      const SizedBox(width: 8),
-      OutlinedButton.icon(
-        onPressed: _isTranslating ? null : _translateToVietnamese,
-        icon: const Icon(Icons.translate),
-        label: Text(
-          _isTranslating ? 'Translating...' : 'Translate to Vietnamese',
-        ),
-      ),
-      const SizedBox(width: 8),
-      OutlinedButton.icon(
-        onPressed: _selectedChunk == null ? null : _showSplitDialog,
-        icon: const Icon(Icons.call_split),
-        label: const Text('Split at cursor'),
-      ),
-      if (_hasChanges) ...[
-        const SizedBox(width: 8),
-        FilledButton.icon(
-          onPressed: _save,
-          icon: const Icon(Icons.save),
-          label: const Text('Save'),
-        ),
-      ],
-    ],
-  );
-
-  Widget _audioUnavailable() => const Align(
-    alignment: Alignment.centerLeft,
-    child: Text(
-      'Local audio is not available.',
-      style: TextStyle(color: Color(0xffa15c00)),
-    ),
-  );
-
-  Widget _progressBar() => ValueListenableBuilder(
-    valueListenable: _playback,
-    builder: (context, playback, _) {
-      final maximum = playback.duration.inMilliseconds == 0
-          ? 1.0
-          : playback.duration.inMilliseconds.toDouble();
-      final current = playback.position.inMilliseconds
-          .clamp(0, maximum.toInt())
-          .toDouble();
-      return Row(
-        children: [
-          IconButton.filled(
-            onPressed: _selectedChunk == null ? null : _playSelection,
-            icon: Icon(playback.isPlaying ? Icons.pause : Icons.play_arrow),
-          ),
-          const SizedBox(width: 8),
-          Text(_format(playback.position)),
-          Expanded(
-            child: Slider(
-              value: current,
-              max: maximum,
-              onChanged: (value) {
-                final position = Duration(milliseconds: value.round());
-                _player.seek(position);
-                _updatePlayback(position: position);
-              },
-            ),
-          ),
-          Text(_format(playback.duration)),
-        ],
-      );
-    },
-  );
 }
