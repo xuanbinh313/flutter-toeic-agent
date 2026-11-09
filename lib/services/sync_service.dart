@@ -29,7 +29,7 @@ class SyncService {
   // The deployed JunEdu Supabase schema predates this local-only field.
   static const _unsupportedRemoteColumns = {
     'exam_attempts': {'additional_meta'},
-    'exam_srt_chunks': {'note'},
+    'exam_srt_chunks': {'note', 'created_at', 'updated_at'},
   };
   bool _ready = false;
   bool get isReady => _ready;
